@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
+import { ChevronRight, Pencil, Plus, Search, Trash2 } from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import type { SessionEntry } from "../composables/useBridgeClient";
 
@@ -484,22 +484,6 @@ watch(
       :aria-label="`${activeOlderWorkspace.name} older sessions`"
       @keydown.escape="closeOlderSessions"
     >
-      <header class="older-modal-header">
-        <div class="older-modal-title-block">
-          <span class="older-modal-kicker">Older sessions</span>
-          <h2 class="older-modal-title">{{ activeOlderWorkspace.name }}</h2>
-          <p class="older-modal-path">{{ activeOlderWorkspace.path }}</p>
-        </div>
-        <button
-          class="older-modal-close"
-          type="button"
-          aria-label="Close older sessions"
-          @click="closeOlderSessions"
-        >
-          <X aria-hidden="true" />
-        </button>
-      </header>
-
       <label class="modal-session-search">
         <Search aria-hidden="true" />
         <input
@@ -952,84 +936,12 @@ watch(
   box-shadow: var(--shadow-floating);
 }
 
-.older-modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 18px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.older-modal-title-block {
-  min-width: 0;
-}
-
-.older-modal-kicker {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text-subtle);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.older-modal-title {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 1rem;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.older-modal-path {
-  margin: 4px 0 0;
-  overflow: hidden;
-  color: var(--text-subtle);
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.older-modal-close {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-subtle);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.older-modal-close:hover {
-  background: var(--surface-hover);
-  color: var(--text-muted);
-}
-
-.older-modal-close:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
-.older-modal-close svg {
-  width: 16px;
-  height: 16px;
-}
-
 .modal-session-search {
   display: flex;
   align-items: center;
   gap: 12px;
   height: 52px;
-  margin: 18px 18px;
+  margin: 18px;
   padding: 0 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1260,26 +1172,9 @@ watch(
     border-radius: 14px;
   }
 
-  .older-modal-header {
-    gap: 12px;
-    padding: 14px 14px 10px;
-  }
-
-  .older-modal-title {
-    font-size: 0.95rem;
-    line-height: 1.25;
-  }
-
-  .older-modal-path {
-    font-size: 0.72rem;
-    line-height: 1.35;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-
   .modal-session-search {
     height: 46px;
-    margin: 12px 14px;
+    margin: 14px;
     padding: 0 12px;
     gap: 10px;
     border-radius: 12px;

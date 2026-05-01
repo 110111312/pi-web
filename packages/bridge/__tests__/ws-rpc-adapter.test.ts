@@ -13,16 +13,9 @@ const { createAgentSessionMock } = vi.hoisted(() => ({
   createAgentSessionMock: vi.fn(),
 }));
 
-vi.mock("@mariozechner/pi-coding-agent", async () => {
-  const actual = await vi.importActual<
-    typeof import("@mariozechner/pi-coding-agent")
-  >("@mariozechner/pi-coding-agent");
-
-  return {
-    ...actual,
-    createAgentSession: createAgentSessionMock,
-  };
-});
+vi.mock("../detached-session.js", () => ({
+  createDetachedAgentSession: createAgentSessionMock,
+}));
 import type { WebSocket } from "ws";
 import { BridgeEventBus } from "../bridge-event-bus.js";
 import {

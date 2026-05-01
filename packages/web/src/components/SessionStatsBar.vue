@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import type { RpcGitRepoState, RpcSessionStats } from "@pi-web/bridge/types";
+import type {
+  RpcGitRepoState,
+  RpcSessionStats,
+  RpcWorkspaceEnvironment,
+} from "@pi-web/bridge/types";
 import { computed } from "vue";
 import GitBranchDropdown from "./GitBranchDropdown.vue";
 
 const props = defineProps<{
   stats: RpcSessionStats | null;
   gitBranch?: string | null;
+  workspaceEnvironments?: RpcWorkspaceEnvironment[];
   gitRepoState: RpcGitRepoState | null;
   gitRepoLoading: boolean;
   gitBranchSwitching: boolean;
@@ -63,6 +68,12 @@ const gitBranchLabel = computed(() => {
   return branch ? branch : null;
 });
 
+const workspaceEnvironments = computed(() =>
+  (props.workspaceEnvironments ?? []).filter(environment =>
+    Boolean(environment?.label?.trim()),
+  ),
+);
+
 const hasStatsContent = computed(
   () =>
     inputLabel.value != null ||
@@ -74,7 +85,10 @@ const hasStatsContent = computed(
 );
 
 const hasVisibleContent = computed(
-  () => gitBranchLabel.value != null || hasStatsContent.value,
+  () =>
+    gitBranchLabel.value != null ||
+    workspaceEnvironments.value.length > 0 ||
+    hasStatsContent.value,
 );
 
 const barColor = computed(() => {
@@ -88,8 +102,12 @@ const barColor = computed(() => {
 <template>
   <div v-if="hasVisibleContent" class="stats-bar">
     <div class="stats-inner">
-      <div v-if="gitBranchLabel" class="stats-leading">
+      <div
+        v-if="gitBranchLabel || workspaceEnvironments.length > 0"
+        class="stats-leading"
+      >
         <GitBranchDropdown
+          v-if="gitBranchLabel"
           :label="gitBranchLabel"
           :repo-state="gitRepoState"
           :loading="gitRepoLoading"
@@ -99,6 +117,14 @@ const barColor = computed(() => {
           :switch-branch="switchGitBranch"
           :create-branch="createGitBranch"
         />
+        <div
+          v-for="environment in workspaceEnvironments"
+          :key="`${environment.type}:${environment.label}`"
+          class="stat-chip env-chip"
+          :title="environment.detail || environment.label"
+        >
+          <span class="stat-label env-label">{{ environment.label }}</span>
+        </div>
       </div>
       <div v-if="hasStatsContent" class="stats-trailing">
         <div v-if="inputLabel" class="stat-chip token-chip">
@@ -156,7 +182,17 @@ const barColor = computed(() => {
 .stats-leading {
   display: flex;
   align-items: center;
+  gap: 8px;
   min-width: 0;
+}
+
+.env-chip {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.env-label {
+  color: var(--text-subtle);
 }
 
 .stats-trailing {

@@ -54,6 +54,7 @@ import type {
   ServerMessage,
   WsClient,
 } from "./types.js";
+import { detectWorkspaceEnvironments } from "./workspace-environment.js";
 
 type PiModel = Parameters<ExtensionAPI["setModel"]>[0];
 type PiThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
@@ -2057,6 +2058,7 @@ function buildStateFromStoredSession(
   const context = sessionManager.buildSessionContext();
   const model = findLatestModelInfo(branch);
   const workspacePath = sessionManager.getCwd() ?? fallbackCwd;
+  const workspaceEnvironments = detectWorkspaceEnvironments(workspacePath);
 
   return {
     model: model ?? undefined,
@@ -2071,6 +2073,7 @@ function buildStateFromStoredSession(
       sessionManager.getSessionName() ??
       sessionDisplayName(sessionManager, sessionManager.getSessionFile()),
     workspacePath,
+    ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
     gitBranch: getCurrentGitBranch(workspacePath),
     autoCompactionEnabled: false,
     messageCount: sessionManager.getEntries()?.length ?? 0,
@@ -2659,6 +2662,8 @@ class SessionRuntime {
       if (activeSession) {
         const workspacePath =
           activeSession.sessionManager.getCwd() ?? this.context.ctx.cwd;
+        const workspaceEnvironments =
+          detectWorkspaceEnvironments(workspacePath);
         return {
           model:
             activeSession.model ??
@@ -2678,6 +2683,7 @@ class SessionRuntime {
               activeSession.sessionFile,
             ),
           workspacePath,
+          ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
           gitBranch: getCurrentGitBranch(workspacePath),
           autoCompactionEnabled: activeSession.autoCompactionEnabled,
           messageCount: activeSession.sessionManager.getEntries()?.length ?? 0,
@@ -2697,6 +2703,7 @@ class SessionRuntime {
 
     const { pi, ctx } = this.context;
     const sessionFile = ctx.sessionManager.getSessionFile();
+    const workspaceEnvironments = detectWorkspaceEnvironments(ctx.cwd);
     return {
       model: ctx.model,
       thinkingLevel: pi.getThinkingLevel(),
@@ -2715,6 +2722,7 @@ class SessionRuntime {
         sessionFile,
       ),
       workspacePath: ctx.cwd,
+      ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
       gitBranch: getCurrentGitBranch(ctx.cwd),
       autoCompactionEnabled: false,
       messageCount: ctx.sessionManager.getEntries()?.length ?? 0,

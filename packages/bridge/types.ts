@@ -337,6 +337,12 @@ export type RpcCommandPayload<T extends RpcCommandType> = Omit<
 // RPC State
 // ============================================================================
 
+export interface RpcWorkspaceEnvironment {
+  type: "direnv" | "python-venv";
+  label: string;
+  detail?: string;
+}
+
 export interface RpcSessionState {
   model?: RpcModel;
   thinkingLevel: RpcThinkingLevel;
@@ -348,6 +354,7 @@ export interface RpcSessionState {
   sessionId: string;
   sessionName?: string;
   workspacePath?: string;
+  workspaceEnvironments?: RpcWorkspaceEnvironment[];
   gitBranch?: string;
   autoCompactionEnabled: boolean;
   messageCount: number;

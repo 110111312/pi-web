@@ -1,11 +1,11 @@
 import * as path from "node:path";
 import {
   SessionManager,
-  createAgentSession,
   type AgentSession,
   type AgentSessionEvent,
   type ExtensionUIContext,
 } from "@mariozechner/pi-coding-agent";
+import { createDetachedAgentSession } from "./detached-session.js";
 
 interface ViewerBinding {
   clientId: string;
@@ -103,10 +103,10 @@ export class DetachedSessionHandle {
       return this.session;
     }
 
-    const created = await createAgentSession({
-      cwd: this.sessionManager.getCwd() || this.fallbackCwd,
-      sessionManager: this.sessionManager,
-    });
+    const created = await createDetachedAgentSession(
+      this.sessionManager.getCwd() || this.fallbackCwd,
+      this.sessionManager,
+    );
 
     const session = created.session;
     const nextSessionPath = session.sessionFile ?? this.sessionPath;

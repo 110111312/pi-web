@@ -179,6 +179,7 @@ defineExpose({
     <SessionStatsBar
       :stats="sessionStats"
       :git-branch="sessionState?.gitBranch ?? null"
+      :workspace-environments="sessionState?.workspaceEnvironments ?? []"
       :git-repo-state="gitRepoState"
       :git-repo-loading="gitRepoLoading"
       :git-branch-switching="gitBranchSwitching"

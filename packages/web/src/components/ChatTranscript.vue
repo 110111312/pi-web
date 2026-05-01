@@ -1716,8 +1716,8 @@ defineExpose({ preserveScroll, rememberSessionScroll, scrollToMessageId });
 }
 
 .thinking-content {
-  margin: 8px 0 0;
-  padding: 10px 0 0;
+  margin: 0;
+  padding: 0;
   font-size: 0.74rem;
   line-height: 1.55;
   color: var(--text-muted);

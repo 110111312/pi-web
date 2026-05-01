@@ -206,6 +206,11 @@ watch(
   min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.file-viewer-code-shell::-webkit-scrollbar {
+  display: none;
 }
 
 .file-viewer-code {

@@ -150,7 +150,11 @@ function fileTabLabel(filePath: string): string {
   padding: 0 12px 0;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.rail-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .rail-tab-item {

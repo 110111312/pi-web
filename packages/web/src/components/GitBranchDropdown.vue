@@ -676,6 +676,11 @@ onBeforeUnmount(() => {
   max-height: 280px;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  scrollbar-width: none;
+}
+
+.git-list::-webkit-scrollbar {
+  display: none;
 }
 
 .git-list:focus {

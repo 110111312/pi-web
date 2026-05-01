@@ -357,6 +357,11 @@ onBeforeUnmount(() => {
   list-style: none;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  scrollbar-width: none;
+}
+
+.model-list::-webkit-scrollbar {
+  display: none;
 }
 
 .model-list-item + .model-list-item {

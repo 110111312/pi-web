@@ -1321,6 +1321,11 @@ defineExpose({ preserveScroll, rememberSessionScroll, scrollToMessageId });
   flex-direction: column;
   gap: 16px;
   background: transparent;
+  scrollbar-width: none;
+}
+
+.chat-transcript::-webkit-scrollbar {
+  display: none;
 }
 
 .empty-state {

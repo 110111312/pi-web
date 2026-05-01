@@ -127,6 +127,11 @@ defineExpose({ handleKeydown });
   border-radius: 14px;
   box-shadow: var(--shadow);
   z-index: 10;
+  scrollbar-width: none;
+}
+
+.workspace-palette::-webkit-scrollbar {
+  display: none;
 }
 
 .workspace-list {

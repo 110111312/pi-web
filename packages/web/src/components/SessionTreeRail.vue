@@ -323,6 +323,11 @@ function handleSelect(entryId: string) {
   padding: 0 1px 0 3px;
   overflow-y: auto;
   flex: 1;
+  scrollbar-width: none;
+}
+
+.tree-list::-webkit-scrollbar {
+  display: none;
 }
 
 .tree-row + .tree-row {

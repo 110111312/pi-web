@@ -11,7 +11,7 @@ import {
 } from "vue";
 import type { TranscriptEntry } from "../composables/useBridgeClient";
 import { userMessageCopyText } from "../utils/messageCopy";
-import { buildToolInlineModel } from "../utils/toolBlock";
+import { buildToolDetailModel, buildToolInlineModel } from "../utils/toolBlock";
 import {
   buildTranscriptDisplayItems,
   contentBlocks,
@@ -305,6 +305,10 @@ const toolBlockModelCache = new WeakMap<
   ToolContentBlock,
   ReturnType<typeof buildToolInlineModel>
 >();
+const toolBlockDetailCache = new WeakMap<
+  ToolContentBlock,
+  ReturnType<typeof buildToolDetailModel>
+>();
 
 function messageStableKey(msg: TranscriptEntry, index: number): string {
   return msg.transcriptKey ?? msg.id ?? `message:${index}`;
@@ -410,61 +414,20 @@ function toolBlockDiffStats(block: ToolContentBlock) {
   return toolBlockModel(block).diffStats;
 }
 
+function toolBlockDetail(block: ToolContentBlock) {
+  const cached = toolBlockDetailCache.get(block);
+  if (cached) return cached;
+  const detail = buildToolDetailModel(block);
+  toolBlockDetailCache.set(block, detail);
+  return detail;
+}
+
 function toolStatusMeta(
   status: ToolContentBlock["toolStatus"] | "success" | "error",
 ): string | undefined {
   if (status === "pending") return "running";
   if (status === "error") return "error";
   return undefined;
-}
-
-function recordStringValue(
-  value: ToolContentBlock["resultDetails"] | unknown,
-  key: string,
-): string | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const candidate = (value as Record<string, unknown>)[key];
-  return typeof candidate === "string" ? candidate : undefined;
-}
-
-function toolArgStringValue(
-  block: ToolContentBlock,
-  key: string,
-): string | undefined {
-  if (!block.toolArgs || typeof block.toolArgs !== "object") return undefined;
-  if (Array.isArray(block.toolArgs)) return undefined;
-  const candidate = (block.toolArgs as Record<string, unknown>)[key];
-  return typeof candidate === "string" ? candidate : undefined;
-}
-
-function toolBlockPath(block: ToolContentBlock): string | undefined {
-  return toolArgStringValue(block, "path");
-}
-
-function toolBlockDiff(block: ToolContentBlock): string | undefined {
-  return recordStringValue(block.resultDetails, "diff")
-    ?.replace(/\r/g, "")
-    .trim();
-}
-
-function toolBlockTextResult(block: ToolContentBlock): string {
-  const diff = toolBlockDiff(block);
-  if (diff) return diff;
-
-  if (block.toolName === "read" && toolBlockImages(block).length > 0) {
-    return "";
-  }
-
-  const text = (block.resultBlocks ?? [])
-    .flatMap(item => (item.kind === "text" ? [item.text] : []))
-    .join("\n")
-    .replace(/\r/g, "")
-    .trim();
-  if (text) return text;
-
-  return block.resultText?.replace(/\r/g, "").trim() ?? "";
 }
 
 function toolBlockImages(block: ToolContentBlock): ImageContentBlock[] {
@@ -474,9 +437,11 @@ function toolBlockImages(block: ToolContentBlock): ImageContentBlock[] {
 }
 
 function toolBlockEmptyState(block: ToolContentBlock): string {
-  return block.toolStatus === "pending"
-    ? "Waiting for tool result."
-    : "No text result.";
+  if (block.toolStatus === "pending") return "Waiting for tool result.";
+  if (block.toolName === "write" && toolBlockDetail(block).kind === "empty") {
+    return "File is empty.";
+  }
+  return "No text result.";
 }
 
 function toolResultText(msg: TranscriptEntry): string {
@@ -1181,34 +1146,32 @@ defineExpose({ preserveScroll, rememberSessionScroll, scrollToMessageId });
                         </figure>
                       </div>
                       <section
-                        v-if="toolBlockTextResult(block)"
+                        v-if="toolBlockDetail(block).kind !== 'empty'"
                         class="tool-inline-section"
                       >
                         <DiffView
-                          v-if="
-                            block.toolName === 'edit' && toolBlockDiff(block)
-                          "
-                          :diff="toolBlockDiff(block) || ''"
+                          v-if="toolBlockDetail(block).kind === 'diff'"
+                          :diff="toolBlockDetail(block).text || ''"
                         />
                         <div
-                          v-else-if="block.toolName === 'read'"
+                          v-else-if="toolBlockDetail(block).kind === 'code'"
                           class="tool-inline-code-panel"
                         >
                           <HighlightedCode
-                            :code="toolBlockTextResult(block)"
-                            :path="toolBlockPath(block)"
+                            :code="toolBlockDetail(block).text || ''"
+                            :path="toolBlockDetail(block).path"
                           />
                         </div>
                         <div
-                          v-else-if="block.toolName === 'bash'"
+                          v-else-if="toolBlockDetail(block).kind === 'bash'"
                           class="tool-inline-code-panel"
                         >
                           <pre class="tool-inline-code-output">{{
-                            toolBlockTextResult(block)
+                            toolBlockDetail(block).text
                           }}</pre>
                         </div>
                         <pre v-else class="tool-inline-pre">{{
-                          toolBlockTextResult(block)
+                          toolBlockDetail(block).text
                         }}</pre>
                       </section>
                       <div

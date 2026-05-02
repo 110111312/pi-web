@@ -12,6 +12,12 @@ export interface ToolInlineModel {
   diffStats?: { added: number; removed: number };
 }
 
+export interface ToolDetailModel {
+  kind: "diff" | "code" | "bash" | "text" | "empty";
+  text?: string;
+  path?: string;
+}
+
 type ToolArgsRecord = JsonObject;
 
 export function buildToolInlineModel(block: ToolContentBlock): ToolInlineModel {
@@ -104,6 +110,30 @@ function formatToolMeta(
   }
 }
 
+export function buildToolDetailModel(block: ToolContentBlock): ToolDetailModel {
+  const args = asRecord(block.toolArgs);
+  const path = stringValue(args, "path");
+  const diff = blockResultDiff(block.resultDetails)?.replace(/\r/g, "").trim();
+  if (block.toolName === "edit" && diff) {
+    return { kind: "diff", text: diff, path };
+  }
+
+  if (block.toolName === "write") {
+    const content = stringValue(args, "content");
+    if (typeof content === "string") {
+      return content.length > 0
+        ? { kind: "code", text: content.replace(/\r/g, ""), path }
+        : { kind: "empty", path };
+    }
+  }
+
+  const text = toolResultText(block);
+  if (!text) return { kind: "empty", path };
+  if (block.toolName === "read") return { kind: "code", text, path };
+  if (block.toolName === "bash") return { kind: "bash", text, path };
+  return { kind: "text", text, path };
+}
+
 function humanizeToolName(toolName: string): string {
   if (!toolName) return "Tool";
   return toolName
@@ -191,6 +221,16 @@ function blockResultDiff(
 ): string | undefined {
   const details = asRecord(resultDetails);
   return stringValue(details, "diff");
+}
+
+function toolResultText(block: ToolContentBlock): string {
+  const text = (block.resultBlocks ?? [])
+    .flatMap(item => (item.kind === "text" ? [item.text] : []))
+    .join("\n")
+    .replace(/\r/g, "")
+    .trim();
+  if (text) return text;
+  return block.resultText?.replace(/\r/g, "").trim() ?? "";
 }
 
 function diffStatsFromDiff(

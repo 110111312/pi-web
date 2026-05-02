@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildToolInlineModel } from "../utils/toolBlock";
+import { buildToolDetailModel, buildToolInlineModel } from "../utils/toolBlock";
 import type { ToolContentBlock } from "../utils/transcript";
 
 describe("buildToolInlineModel", () => {
@@ -32,6 +32,23 @@ describe("buildToolInlineModel", () => {
     const model = buildToolInlineModel(block);
     expect(model.title).toBe("README.md");
     expect(model.meta).toBe("3 lines");
+  });
+
+  it("renders write details from the file content instead of the success message", () => {
+    const block: ToolContentBlock = {
+      kind: "tool",
+      toolName: "write",
+      toolArgs: { path: "README.md", content: "# Title\n\nBody copy" },
+      argumentsText: '{"path":"README.md","content":"# Title\\n\\nBody copy"}',
+      resultText: "Successfully wrote 18 bytes to README.md",
+      toolStatus: "success",
+    };
+
+    expect(buildToolDetailModel(block)).toEqual({
+      kind: "code",
+      path: "README.md",
+      text: "# Title\n\nBody copy",
+    });
   });
 
   it("shows bash exit code and timeout metadata", () => {

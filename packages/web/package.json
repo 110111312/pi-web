@@ -1,6 +1,6 @@
 {
   "name": "@pi-web/web",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "private": true,
   "description": "Vue 3 web client for Pi Web",
   "type": "module",

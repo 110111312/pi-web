@@ -1554,7 +1554,7 @@ defineExpose({ preserveScroll, rememberSessionScroll, scrollToMessageId });
   padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: 18px 18px 8px 18px;
-  background: var(--panel-2);
+  background: var(--panel);
 }
 
 .markdown-body + .markdown-body,

@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { ChevronRight, Pencil, Plus, Search, Trash2 } from "lucide-vue-next";
+import {
+  Folder,
+  FolderOpen,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import type { SessionEntry } from "../composables/useBridgeClient";
 
@@ -388,7 +395,11 @@ watch(
             :aria-expanded="workspace.isExpanded"
             @click="toggleWorkspace(workspace.id)"
           >
-            <ChevronRight class="workspace-caret" aria-hidden="true" />
+            <component
+              :is="workspace.isExpanded ? FolderOpen : Folder"
+              class="workspace-icon"
+              aria-hidden="true"
+            />
             <span class="workspace-copy">
               <span class="workspace-name">{{ workspace.name }}</span>
               <span class="workspace-path">{{ workspace.path }}</span>
@@ -690,16 +701,11 @@ watch(
   color: inherit;
 }
 
-.workspace-caret {
+.workspace-icon {
   width: 14px;
   height: 14px;
   color: var(--text-subtle);
   flex-shrink: 0;
-  transition: transform 0.14s ease;
-}
-
-.workspace-group.expanded .workspace-caret {
-  transform: rotate(90deg);
 }
 
 .workspace-copy {

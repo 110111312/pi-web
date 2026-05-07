@@ -1129,7 +1129,7 @@
     height: 14px;
     border-radius: 4px;
     border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
-    background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+    background: transparent;
     color: var(--bg);
     transition:
       border-color 0.15s ease,

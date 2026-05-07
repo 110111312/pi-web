@@ -1,6 +1,4 @@
 <script lang="ts">
-  import PanelRightClose from "lucide-svelte/icons/panel-right-close";
-  import RefreshCw from "lucide-svelte/icons/refresh-cw";
   import type { TreeEntry } from "../composables/bridgeStore.svelte";
   import {
     filterTreeEntries,
@@ -10,20 +8,12 @@
 
   let {
     entries = [] as readonly TreeEntry[],
-    sessionLabel = "",
     sessionPath = null as string | null,
-    showCollapseToggle = false,
     onSelect = (_: string) => {},
-    onRefresh = () => {},
-    onToggleCollapse = () => {},
   }: {
     entries?: readonly TreeEntry[];
-    sessionLabel?: string;
     sessionPath?: string | null;
-    showCollapseToggle?: boolean;
     onSelect?: (entryId: string) => void;
-    onRefresh?: () => void;
-    onToggleCollapse?: () => void;
   } = $props();
 
   let query = $state("");
@@ -53,35 +43,6 @@
 </script>
 
 <div class="tree-rail">
-  <header class="tree-header">
-    <div class="header-main">
-      {#if showCollapseToggle}
-        <button
-          class="nav-button collapse-toggle"
-          type="button"
-          aria-label="Collapse outline"
-          title="Collapse outline"
-          onclick={() => onToggleCollapse()}
-        >
-          <PanelRightClose size={14} aria-hidden="true" />
-        </button>
-      {/if}
-      <div class="header-copy">
-        <p class="header-kicker">Session outline</p>
-        <h2 class="header-title">{sessionLabel}</h2>
-      </div>
-    </div>
-    <button
-      class="nav-button"
-      type="button"
-      aria-label="Refresh outline"
-      title="Refresh outline"
-      onclick={() => onRefresh()}
-    >
-      <RefreshCw size={14} aria-hidden="true" />
-    </button>
-  </header>
-
   <div class="tree-toolbar">
     <input
       bind:value={query}
@@ -163,77 +124,6 @@
         color-mix(in srgb, var(--rail-bg) 90%, var(--panel) 10%)
       ),
       var(--rail-bg);
-  }
-
-  .tree-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-    padding: 2px 4px 8px;
-  }
-
-  .header-main {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .nav-button {
-    width: 28px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--panel) 82%, transparent);
-    color: var(--text-subtle);
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      border-color 0.12s ease,
-      color 0.12s ease,
-      transform 0.12s ease;
-  }
-
-  .nav-button:hover {
-    background: var(--surface-hover);
-    border-color: var(--border-strong);
-    color: var(--text);
-    transform: translateY(-1px);
-  }
-
-  .nav-button:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--focus-ring);
-  }
-
-  .collapse-toggle {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-  }
-
-  .header-copy {
-    min-width: 0;
-  }
-
-  .header-kicker {
-    display: none;
-  }
-
-  .header-title {
-    margin: 0;
-    font-size: 0.74rem;
-    line-height: 1;
-    color: var(--text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .tree-toolbar {
@@ -519,26 +409,6 @@
   @media (max-width: 640px) {
     .tree-rail {
       padding: 12px 10px max(10px, env(safe-area-inset-bottom));
-    }
-
-    .header-kicker {
-      display: block;
-      margin: 0 0 4px;
-      font-size: 0.62rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-    }
-
-    .header-title {
-      font-size: 0.92rem;
-      line-height: 1.25;
-      white-space: normal;
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      line-clamp: 2;
-      overflow: hidden;
     }
 
     .nav-button {

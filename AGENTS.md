@@ -9,8 +9,8 @@ This is a pnpm workspace monorepo with the following packages:
 
 - `@pi-web/bridge` (`packages/bridge/`) — WebSocket RPC bridge server
 - `@pi-web/bin` (`packages/bin/`) — Pi extension entry point
-- `@pi-web/svelte` (`packages/svelte/`) — Svelte 5 web client, current
-  release mainline
+- `@pi-web/svelte` (`packages/svelte/`) — Svelte 5 web client, current release
+  mainline
 
 ## Commands
 

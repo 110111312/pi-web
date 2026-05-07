@@ -934,7 +934,6 @@
         <AppRightSidebar
           treeEntries={bridge.treeEntries}
           sidebarOpen={outlineSidebarOpen}
-          sessionLabel={activeSessionLabel}
           sessionPath={bridge.activeSessionPath}
           hasTreeTab={bridge.hasSessionOutline}
           activeTabId={activeRightSidebarTabId}
@@ -945,7 +944,6 @@
           onSelectTab={handleRightSidebarTabSelect}
           onCloseFileTab={closeFileViewerTab}
           onSelectTreeEntry={handleTreeEntrySelect}
-          onRefreshTree={handleRefreshTree}
         />
       {/if}
     </div>

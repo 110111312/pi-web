@@ -741,9 +741,9 @@ watch(
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border: 0;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  background: transparent;
   color: var(--text-subtle);
   cursor: pointer;
   flex-shrink: 0;
@@ -751,7 +751,6 @@ watch(
   transform: translateX(2px) scale(0.96);
   transition:
     background 0.14s ease,
-    border-color 0.14s ease,
     box-shadow 0.14s ease,
     color 0.14s ease,
     opacity 0.14s ease,
@@ -765,7 +764,6 @@ watch(
 }
 
 .workspace-new-session:hover {
-  border-color: color-mix(in srgb, var(--border-strong) 70%, transparent);
   background: var(--surface-hover);
   color: var(--text-muted);
 }

@@ -14,7 +14,6 @@
   let {
     treeEntries = [] as readonly TreeEntry[],
     sidebarOpen = false,
-    sessionLabel = "",
     sessionPath = null as string | null,
     hasTreeTab = false,
     activeTabId = "",
@@ -26,11 +25,9 @@
     onSelectTab = (_: string) => {},
     onCloseFileTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
-    onRefreshTree = () => {},
   }: {
     treeEntries?: readonly TreeEntry[];
     sidebarOpen?: boolean;
-    sessionLabel?: string;
     sessionPath?: string | null;
     hasTreeTab?: boolean;
     activeTabId?: string;
@@ -41,7 +38,6 @@
     onSelectTab?: (tabId: string) => void;
     onCloseFileTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
-    onRefreshTree?: () => void;
   } = $props();
 
   let tabs = $derived([
@@ -109,10 +105,8 @@
         >
           <SessionTreeRail
             entries={treeEntries}
-            {sessionLabel}
             {sessionPath}
             onSelect={(e: string) => onSelectTreeEntry(e)}
-            onRefresh={onRefreshTree}
           />
         </div>
       {:else if activeFileTab}

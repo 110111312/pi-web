@@ -1,6 +1,6 @@
 {
   "name": "@pi-web/bin",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "private": true,
   "description": "Pi extension entry point for Pi Web",
   "type": "module",

@@ -17,6 +17,7 @@ export interface ToolDetailModel {
   text?: string;
   path?: string;
   command?: string;
+  edits?: Array<{ oldText: string; newText: string }>;
 }
 
 type ToolArgsRecord = JsonObject;
@@ -119,8 +120,11 @@ export function buildToolDetailModel(block: ToolContentBlock): ToolDetailModel {
       ? formatBashCommand(stringValue(args, "command"))
       : undefined;
   const diff = blockResultDiff(block.resultDetails)?.replace(/\r/g, "").trim();
-  if (block.toolName === "edit" && diff) {
-    return { kind: "diff", text: diff, path };
+  if (block.toolName === "edit") {
+    const edits = editPairs(args);
+    if (diff || edits.length > 0) {
+      return { kind: "diff", text: diff, path, edits };
+    }
   }
 
   if (block.toolName === "write") {
@@ -209,6 +213,25 @@ function editDiffStats(
   }
 
   return sawEdit ? { added, removed } : undefined;
+}
+
+function editPairs(
+  args: ToolArgsRecord | undefined,
+): Array<{ oldText: string; newText: string }> {
+  const edits = arrayValue(args, "edits");
+  if (!edits) return [];
+  const pairs: Array<{ oldText: string; newText: string }> = [];
+
+  for (const edit of edits) {
+    const record = asRecord(edit);
+    if (!record) continue;
+    pairs.push({
+      oldText: typeof record.oldText === "string" ? record.oldText : "",
+      newText: typeof record.newText === "string" ? record.newText : "",
+    });
+  }
+
+  return pairs;
 }
 
 function countLines(text: string): number {

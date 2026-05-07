@@ -1,5 +1,4 @@
 import alibabaSvg from "@lobehub/icons-static-svg/icons/alibaba.svg?raw";
-import anthropicSvg from "@lobehub/icons-static-svg/icons/anthropic.svg?raw";
 import cerebrasSvg from "@lobehub/icons-static-svg/icons/cerebras.svg?raw";
 import claudeSvg from "@lobehub/icons-static-svg/icons/claude.svg?raw";
 import cohereSvg from "@lobehub/icons-static-svg/icons/cohere.svg?raw";

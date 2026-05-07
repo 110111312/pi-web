@@ -882,7 +882,11 @@
                         {#if toolBlockDetail(block).kind !== "empty"}
                           <section class="tool-inline-section">
                             {#if toolBlockDetail(block).kind === "diff"}
-                              <DiffView diff={toolBlockDetail(block).text || ""} />
+                              <DiffView
+                                diff={toolBlockDetail(block).text || ""}
+                                path={toolBlockDetail(block).path}
+                                edits={toolBlockDetail(block).edits || []}
+                              />
                             {:else if toolBlockDetail(block).kind === "code"}
                               <div class="tool-inline-code-panel">
                                 <HighlightedCode

@@ -146,8 +146,8 @@
   }
 
   .search-input:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-color: var(--border);
+    box-shadow: none;
   }
 
   .filter-row {

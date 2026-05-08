@@ -1194,7 +1194,7 @@
     justify-content: flex-end;
     width: fit-content;
     max-width: min(720px, 100%);
-    margin: 6px 4px 0 0;
+    margin: 2px 0px 0 0;
   }
 
   .message-action-button {
@@ -1204,8 +1204,8 @@
     width: 28px;
     height: 28px;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-    background: color-mix(in srgb, var(--panel) 84%, transparent);
+    border: none;
+    background: transparent;
     color: var(--text-subtle);
     cursor: pointer;
     opacity: 0;
@@ -1213,7 +1213,6 @@
     transform: translateY(-2px);
     transition:
       opacity 0.14s ease,
-      border-color 0.14s ease,
       color 0.14s ease,
       background 0.14s ease,
       transform 0.14s ease;
@@ -1228,7 +1227,6 @@
 
   .message-action-button:hover,
   .message-action-button:focus-visible {
-    border-color: var(--border-strong);
     background: var(--surface-hover);
     color: var(--text);
   }
@@ -1239,7 +1237,7 @@
     margin-left: auto;
     padding: 12px 16px;
     border: 1px solid var(--border);
-    border-radius: 18px 18px 8px 18px;
+    border-radius: 18px 18px 18px 18px;
     background: var(--panel);
   }
 

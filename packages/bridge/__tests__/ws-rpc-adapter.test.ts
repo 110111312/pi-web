@@ -2,11 +2,11 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { SessionManager } from "@mariozechner/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { createAgentSessionMock } = vi.hoisted(() => ({
@@ -1858,9 +1858,13 @@ describe("WsRpcAdapter", () => {
 
   describe("discovery commands", () => {
     it("should list sessions with the newest one first", async () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-sessions-"));
-      const currentSessionFile = path.join(tmpDir, "current-session.jsonl");
-      const olderSessionFile = path.join(tmpDir, "older-session.jsonl");
+      const sessionDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        "--tmp--",
+      );
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const currentSessionFile = path.join(sessionDir, "current-session.jsonl");
+      const olderSessionFile = path.join(sessionDir, "older-session.jsonl");
       fs.writeFileSync(
         currentSessionFile,
         [
@@ -1934,7 +1938,7 @@ describe("WsRpcAdapter", () => {
       const command: RpcCommand = {
         id: "cmd-1",
         type: "list_sessions",
-        workspacePath: "/test/project",
+        workspacePath: "/tmp",
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -1977,12 +1981,17 @@ describe("WsRpcAdapter", () => {
         },
       ]);
 
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(sessionDir, { recursive: true, force: true });
     });
 
     it("shows a generic label for empty sessions instead of the session filename", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-empty-"));
-      const emptySessionFile = path.join(tmpDir, "session-123.jsonl");
+      const sessionDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        `--${tmpDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+      );
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const emptySessionFile = path.join(sessionDir, "session-123.jsonl");
       fs.writeFileSync(
         emptySessionFile,
         [
@@ -2001,7 +2010,7 @@ describe("WsRpcAdapter", () => {
       const command: RpcCommand = {
         id: "cmd-empty",
         type: "list_sessions",
-        workspacePath: "/test/project",
+        workspacePath: tmpDir,
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2036,7 +2045,12 @@ describe("WsRpcAdapter", () => {
 
     it("extracts the first user text from a truncated image-backed message", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-image-"));
-      const sessionFile = path.join(tmpDir, "session-with-image.jsonl");
+      const sessionDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        `--${tmpDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+      );
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const sessionFile = path.join(sessionDir, "session-with-image.jsonl");
       fs.writeFileSync(
         sessionFile,
         [
@@ -2073,7 +2087,7 @@ describe("WsRpcAdapter", () => {
       const command: RpcCommand = {
         id: "cmd-image",
         type: "list_sessions",
-        workspacePath: "/test/project",
+        workspacePath: tmpDir,
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2250,7 +2264,12 @@ describe("WsRpcAdapter", () => {
 
     it("omits a pending new session from list_sessions until it is stored", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-pending-"));
-      const liveSessionFile = path.join(tmpDir, "live-session.jsonl");
+      const sessionDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        `--${tmpDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+      );
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const liveSessionFile = path.join(sessionDir, "live-session.jsonl");
       fs.writeFileSync(
         liveSessionFile,
         [
@@ -2307,7 +2326,7 @@ describe("WsRpcAdapter", () => {
       const listCommand: RpcCommand = {
         id: "cmd-list",
         type: "list_sessions",
-        workspacePath: "/test/project",
+        workspacePath: tmpDir,
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2335,7 +2354,12 @@ describe("WsRpcAdapter", () => {
 
     it("keeps a pending new session switchable even when omitted from list_sessions", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-pending-"));
-      const liveSessionFile = path.join(tmpDir, "live-session.jsonl");
+      const sessionDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        `--${tmpDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+      );
+      fs.mkdirSync(sessionDir, { recursive: true });
+      const liveSessionFile = path.join(sessionDir, "live-session.jsonl");
       fs.writeFileSync(
         liveSessionFile,
         [
@@ -2424,7 +2448,7 @@ describe("WsRpcAdapter", () => {
       const listCommand: RpcCommand = {
         id: "cmd-list",
         type: "list_sessions",
-        workspacePath: "/test/project",
+        workspacePath: tmpDir,
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2537,8 +2561,7 @@ describe("WsRpcAdapter", () => {
 
       const listCommand: RpcCommand = {
         id: "cmd-list",
-        type: "list_sessions",
-        workspacePath: "/test/project",
+        type: "list_workspaces",
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2561,7 +2584,7 @@ describe("WsRpcAdapter", () => {
       const listResponse = sendCalls.find(
         call =>
           call.type === "response" &&
-          call.payload.command === "list_sessions" &&
+          call.payload.command === "list_workspaces" &&
           call.payload.id === "cmd-list",
       );
 
@@ -2569,23 +2592,11 @@ describe("WsRpcAdapter", () => {
       expect(registerResponse?.payload.data.cancelled).toBe(false);
       expect(registerResponse?.payload.data.workspacePath).toBe(workspaceDir);
       expect(listResponse?.payload.success).toBe(true);
-      expect(listResponse?.payload.data.sessions).toEqual([
-        {
-          id: `workspace:${workspaceDir}`,
-          name: path.basename(workspaceDir),
-          path: path.join(
-            process.env.PI_WEB_SESSIONS_ROOT!,
-            `--${workspaceDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
-          ),
-          isRunning: false,
-          timestamp: undefined,
-          updatedAt: undefined,
-          workspaceId: workspaceDir,
-          workspaceName: path.basename(workspaceDir),
-          workspacePath: workspaceDir,
-          isWorkspacePlaceholder: true,
-        },
-      ]);
+      expect(listResponse?.payload.data.workspaces).toContainEqual({
+        id: workspaceDir,
+        name: path.basename(workspaceDir),
+        path: workspaceDir,
+      });
     });
 
     it("restores registered workspace paths when directory names contain hyphens", async () => {
@@ -2616,8 +2627,7 @@ describe("WsRpcAdapter", () => {
 
       const listCommand: RpcCommand = {
         id: "cmd-list-hyphen",
-        type: "list_sessions",
-        workspacePath: "/test/project",
+        type: "list_workspaces",
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2634,25 +2644,15 @@ describe("WsRpcAdapter", () => {
       const listResponse = sendCalls.find(
         call =>
           call.type === "response" &&
-          call.payload.command === "list_sessions" &&
+          call.payload.command === "list_workspaces" &&
           call.payload.id === "cmd-list-hyphen",
       );
 
       expect(listResponse?.payload.success).toBe(true);
-      expect(listResponse?.payload.data.sessions).toContainEqual({
-        id: `workspace:${workspaceDir}`,
+      expect(listResponse?.payload.data.workspaces).toContainEqual({
+        id: workspaceDir,
         name: path.basename(workspaceDir),
-        path: path.join(
-          process.env.PI_WEB_SESSIONS_ROOT!,
-          `--${workspaceDir.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
-        ),
-        isRunning: false,
-        timestamp: undefined,
-        updatedAt: undefined,
-        workspaceId: workspaceDir,
-        workspaceName: path.basename(workspaceDir),
-        workspacePath: workspaceDir,
-        isWorkspacePlaceholder: true,
+        path: workspaceDir,
       });
     });
 

@@ -4,7 +4,7 @@ import {
   type AgentSession,
   type AgentSessionEvent,
   type ExtensionUIContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { createDetachedAgentSession } from "./detached-session.js";
 
 interface ViewerBinding {
@@ -45,6 +45,10 @@ function createHeadlessUIContext(): ExtensionUIContext {
     setTheme: () => ({ success: false, error: "Not supported" }),
     getToolsExpanded: () => false,
     setToolsExpanded: noop,
+    setWorkingVisible: noop,
+    setWorkingIndicator: noop,
+    addAutocompleteProvider: noop,
+    getEditorComponent: () => undefined,
   };
 }
 

@@ -8,7 +8,7 @@ import {
   type CreateAgentSessionResult,
   type SessionManager,
   type ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { buildWorkspaceActivationPrefix } from "./workspace-environment.js";
 
 export function buildDetachedShellCommandPrefix(

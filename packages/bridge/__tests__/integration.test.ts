@@ -23,7 +23,7 @@ vi.mock("../detached-session.js", () => ({
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { startBridge, type BridgeController } from "../lifecycle.js";
 import { createBridgeTerminalView } from "../terminal-log-view.js";
 import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "../types.js";
@@ -969,7 +969,11 @@ describe("Bridge Integration", () => {
         ws.send(
           JSON.stringify({
             type: "command",
-            payload: { id: commandId, type: "list_sessions" },
+            payload: {
+              id: commandId,
+              type: "list_sessions",
+              workspacePath: "/tmp",
+            },
           }),
         );
 

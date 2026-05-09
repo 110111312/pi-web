@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import {
   type ExtensionAPI,
   type ExtensionCommandContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { isBridgeExitInput } from "@pi-web/bridge/exit-input";
 import { startBridge, type BridgeController } from "@pi-web/bridge/lifecycle";
 import { createBridgeTerminalView } from "@pi-web/bridge/terminal-log-view";

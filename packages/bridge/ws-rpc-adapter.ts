@@ -13,7 +13,7 @@ import {
   type ExtensionCommandContext,
   type ExtensionUIContext,
   type SessionEntry,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { BridgeEventBus } from "./bridge-event-bus.js";
 import { DetachedSessionRegistry } from "./session-registry.js";
@@ -3445,6 +3445,10 @@ class ExtensionUIBridge {
       setTheme: () => ({ success: false, error: "Not supported" }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => {},
+      setWorkingVisible: () => {},
+      setWorkingIndicator: () => {},
+      addAutocompleteProvider: () => {},
+      getEditorComponent: () => undefined,
     };
   }
 

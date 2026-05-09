@@ -4,7 +4,7 @@
   import SessionRail from "../components/SessionRail.svelte";
   import type { SessionEntry } from "../composables/bridgeStore.svelte";
 
-  const RAIL_ACTION_ICON_SIZE = 13;
+  const RAIL_ACTION_ICON_SIZE = 16;
   const WORKSPACE_FOLDER_ICON_STYLE = "display: block;";
 
   let {

@@ -144,8 +144,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    padding: 6px 4px 10px 8px;
     height: 44px;
-    padding: 0 14px;
+    /*padding: 0 14px;*/
     border-bottom: 1px solid var(--border);
     background: var(--bg-elevated);
     flex-shrink: 0;
@@ -225,8 +226,10 @@
     align-items: center;
     gap: 5px;
     height: 22px;
+    width: 22px;
+    flex: 0 0 22px;
     padding: 0 7px;
-    border-radius: 999px;
+    border-radius: 6px;
     border: none;
     background: var(--panel);
     font-size: 0.68rem;
@@ -266,14 +269,22 @@
     background: var(--surface-active);
   }
 
-  .sidebar-collapse,
+  .sidebar-collapse {
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    flex: 0 0 22px;
+  }
+
   .outline-toggle,
   .appearance-toggle,
   .theme-toggle {
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     padding: 0;
+    flex: 0 0 22px;
   }
 
   .sidebar-collapse-icon,
@@ -327,12 +338,17 @@
       max-width: min(100%, 42vw);
     }
 
-    .hamburger,
+    .hamburger {
+      width: 24px;
+      height: 24px;
+    }
+
     .outline-toggle,
     .appearance-toggle,
     .theme-toggle {
-      width: 24px;
-      height: 24px;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
     }
 
     .debug-toggle {

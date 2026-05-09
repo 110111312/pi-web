@@ -1043,6 +1043,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .app-shell.left-rail-collapsed .app-main-column {
+    background: var(--bg);
+  }
+
   .app-main-column {
     display: flex;
     flex-direction: column;

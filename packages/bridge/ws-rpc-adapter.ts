@@ -4736,6 +4736,26 @@ export class WsRpcAdapter {
         }
       }
 
+      case "set_session_name": {
+        const name = command.name.trim();
+        if (!name) {
+          return {
+            id: correlationId,
+            type: "response",
+            command: "set_session_name",
+            success: false,
+            error: "Session name cannot be empty",
+          };
+        }
+        pi.setSessionName(name);
+        return {
+          id: correlationId,
+          type: "response",
+          command: "set_session_name",
+          success: true,
+        };
+      }
+
       case "delete_session": {
         const sessionPath = command.sessionPath as string;
         if (!sessionPath || !fs.existsSync(sessionPath)) {

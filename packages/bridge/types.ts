@@ -280,6 +280,7 @@ export interface RpcCommandMap {
 
   /** Session */
   export_html: { outputPath?: string };
+  set_session_name: { name: string };
   switch_session: { sessionPath: string; limit?: number };
   select_tree_entry: { entryId: string };
   navigate_tree: {
@@ -306,7 +307,7 @@ export interface RpcCommandMap {
   /** Discovery */
   list_workspaces: {};
   list_sessions: {
-    workspacePath: string;
+    workspacePath?: string;
     limit?: number;
     cursor?: string;
     query?: string;
@@ -632,6 +633,7 @@ export interface RpcResponseMap {
   get_fork_messages: { messages: Array<{ entryId: string; text: string }> };
   get_last_assistant_text: { text: string | null };
   delete_session: void;
+  set_session_name: void;
   get_messages: RpcTranscriptPage & { direction: "latest" | "older" };
   get_commands: { commands: RpcSlashCommand[] };
   list_workspaces: { workspaces: RpcWorkspaceSummary[] };

@@ -1931,7 +1931,11 @@ describe("WsRpcAdapter", () => {
         },
       ]);
 
-      const command: RpcCommand = { id: "cmd-1", type: "list_sessions" };
+      const command: RpcCommand = {
+        id: "cmd-1",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -1994,7 +1998,11 @@ describe("WsRpcAdapter", () => {
         context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(emptySessionFile);
 
-      const command: RpcCommand = { id: "cmd-empty", type: "list_sessions" };
+      const command: RpcCommand = {
+        id: "cmd-empty",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2062,7 +2070,11 @@ describe("WsRpcAdapter", () => {
         context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
-      const command: RpcCommand = { id: "cmd-image", type: "list_sessions" };
+      const command: RpcCommand = {
+        id: "cmd-image",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2175,7 +2187,6 @@ describe("WsRpcAdapter", () => {
       const command: RpcCommand = {
         id: "cmd-workspace-sessions",
         type: "list_sessions",
-        scope: "workspace",
         workspacePath: workspaceB,
         includeActive: true,
       };
@@ -2218,7 +2229,6 @@ describe("WsRpcAdapter", () => {
       const command: RpcCommand = {
         id: "cmd-workspace-missing-path",
         type: "list_sessions",
-        scope: "workspace",
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2235,9 +2245,7 @@ describe("WsRpcAdapter", () => {
 
       expect(response.payload.command).toBe("list_sessions");
       expect(response.payload.success).toBe(false);
-      expect(response.payload.error).toBe(
-        "workspacePath is required when scope is workspace",
-      );
+      expect(response.payload.error).toBe("workspacePath is required");
     });
 
     it("omits a pending new session from list_sessions until it is stored", async () => {
@@ -2296,7 +2304,11 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      const listCommand: RpcCommand = { id: "cmd-list", type: "list_sessions" };
+      const listCommand: RpcCommand = {
+        id: "cmd-list",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2409,7 +2421,11 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      const listCommand: RpcCommand = { id: "cmd-list", type: "list_sessions" };
+      const listCommand: RpcCommand = {
+        id: "cmd-list",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2471,7 +2487,11 @@ describe("WsRpcAdapter", () => {
         context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(undefined);
 
-      const command: RpcCommand = { id: "cmd-1", type: "list_sessions" };
+      const command: RpcCommand = {
+        id: "cmd-1",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2515,7 +2535,11 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      const listCommand: RpcCommand = { id: "cmd-list", type: "list_sessions" };
+      const listCommand: RpcCommand = {
+        id: "cmd-list",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(
@@ -2593,6 +2617,7 @@ describe("WsRpcAdapter", () => {
       const listCommand: RpcCommand = {
         id: "cmd-list-hyphen",
         type: "list_sessions",
+        workspacePath: "/test/project",
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -3153,7 +3178,11 @@ describe("WsRpcAdapter", () => {
         throw new Error("session file unavailable");
       });
 
-      const command: RpcCommand = { id: "cmd-1", type: "list_sessions" };
+      const command: RpcCommand = {
+        id: "cmd-1",
+        type: "list_sessions",
+        workspacePath: "/test/project",
+      };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
       ).trigger(

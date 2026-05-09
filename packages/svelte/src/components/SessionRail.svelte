@@ -74,6 +74,8 @@
   let editingPath = $state<string | null>(null);
   let editingName = $state("");
   let editInputRef = $state<HTMLInputElement | null>(null);
+  let lastAutoExpandedSessionPath: string | null = null;
+  let hasAutoExpandedInitialWorkspace = false;
   let menu = $state<MenuState>({
     visible: false,
     sessionPath: null,
@@ -332,11 +334,18 @@
     const as = activeSessionPath
       ? sessions.find(s => s.path === activeSessionPath)
       : undefined;
+
     if (as) {
+      hasAutoExpandedInitialWorkspace = true;
+      if (as.path === lastAutoExpandedSessionPath) return;
+      lastAutoExpandedSessionPath = as.path;
       expandWorkspace(getWorkspaceId(as));
       return;
     }
-    if (sessions.length > 0 && expandedWorkspaceIds.size === 0) {
+
+    lastAutoExpandedSessionPath = null;
+    if (sessions.length > 0 && !hasAutoExpandedInitialWorkspace) {
+      hasAutoExpandedInitialWorkspace = true;
       expandWorkspace(getWorkspaceId(sessions[0]));
     }
   });

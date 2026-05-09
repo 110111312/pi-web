@@ -144,7 +144,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 6px 4px 10px 8px;
+    padding: 6px 8px 10px 8px;
     height: 44px;
     /*padding: 0 14px;*/
     border-bottom: 1px solid var(--border);

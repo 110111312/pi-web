@@ -62,7 +62,7 @@
 
 {#if open && currentImage}
   <div class="image-lightbox-shell">
-    <div class="image-lightbox-backdrop" onclick={onClose}></div>
+    <div class="image-lightbox-backdrop" role="button" tabindex="0" onclick={onClose} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && onClose()}></div>
     <div
       class="image-lightbox-stage"
       role="dialog"
@@ -70,6 +70,7 @@
       aria-label="Image preview"
       tabindex="-1"
       onclick={onClose}
+      onkeydown={(e) => e.key === "Escape" && onClose()}
     >
       <button
         type="button"
@@ -99,7 +100,7 @@
 
       <div class="image-lightbox-viewport">
         <figure class="image-lightbox-figure">
-          <div class="image-lightbox-frame" onclick={(event) => event.stopPropagation()}>
+          <div class="image-lightbox-frame" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
             <img
               class="image-lightbox-image"
               src={currentImage.src}
@@ -126,7 +127,9 @@
       <div
         class="image-lightbox-footer"
         class:empty-footer={!caption && !hasMultipleImages}
+        role="presentation"
         onclick={(event) => event.stopPropagation()}
+        onkeydown={(event) => event.stopPropagation()}
       >
         {#if caption}
           <span class="image-lightbox-caption">{caption}</span>

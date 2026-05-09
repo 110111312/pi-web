@@ -71,22 +71,31 @@
 </script>
 
 {#if open}
-  <div class="theme-dialog-overlay" style={themeStyle} onclick={() => onClose()}>
-    <section
+  <div
+    class="theme-dialog-overlay"
+    style={themeStyle}
+    role="button"
+    tabindex="0"
+    onclick={() => onClose()}
+    onkeydown={(e) => (e.key === "Enter" || e.key === " ") && onClose()}
+  >
+    <div
       class="theme-dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="theme-dialog-title"
+      tabindex="-1"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="theme-dialog-body">
         <div class="theme-dialog-top">
           <div class="theme-dialog-intro">
             <div class="theme-title-row">
               {#if mode === "dark"}
-                <Moon class="theme-title-icon" aria-hidden="true" size={18} />
+                <Moon aria-hidden="true" size={18} style="color: var(--accent-hover); flex-shrink: 0" />
               {:else}
-                <Sun class="theme-title-icon" aria-hidden="true" size={18} />
+                <Sun aria-hidden="true" size={18} style="color: var(--accent-hover); flex-shrink: 0" />
               {/if}
               <h2 id="theme-dialog-title" class="theme-dialog-title">
                 {currentModeLabel}
@@ -136,7 +145,7 @@
           {/each}
         </div>
       </div>
-    </section>
+    </div>
   </div>
 {/if}
 
@@ -194,27 +203,12 @@
     gap: 10px;
   }
 
-  .theme-title-icon {
-    width: 18px;
-    height: 18px;
-    color: var(--accent-hover);
-    flex-shrink: 0;
-  }
-
   .theme-dialog-title {
     margin: 0;
     color: var(--text);
     font-size: 1.02rem;
     line-height: 1.15;
     font-weight: 700;
-  }
-
-  .theme-dialog-copy {
-    margin: 0;
-    color: var(--text-subtle);
-    font-size: 0.8rem;
-    line-height: 1.5;
-    max-width: 640px;
   }
 
   .theme-dialog-close {
@@ -238,25 +232,6 @@
     border-color: var(--accent);
     color: var(--text);
     transform: translateY(-1px);
-  }
-
-  .theme-section-meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
-
-  .theme-section-label {
-    color: var(--text);
-    font-size: 0.84rem;
-    font-weight: 600;
-  }
-
-  .theme-section-subtle {
-    color: var(--text-subtle);
-    font-size: 0.75rem;
   }
 
   .theme-grid {

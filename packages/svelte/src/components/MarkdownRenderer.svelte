@@ -392,13 +392,17 @@
   }
 
   function handleClick(event: MouseEvent) {
-    const target = event.target instanceof Element
-      ? event.target.closest<HTMLAnchorElement>("a[data-file-path][data-file-line]")
-      : null;
-    if (!target) return;
+    handleClickTarget(event.target);
     event.preventDefault();
-    const path = target.dataset.filePath?.trim();
-    const lineNumber = Number.parseInt(target.dataset.fileLine ?? "", 10);
+  }
+
+  function handleClickTarget(target: EventTarget | null) {
+    const el = target instanceof Element
+      ? target.closest<HTMLAnchorElement>("a[data-file-path][data-file-line]")
+      : null;
+    if (!el) return;
+    const path = el.dataset.filePath?.trim();
+    const lineNumber = Number.parseInt(el.dataset.fileLine ?? "", 10);
     if (!path || !Number.isInteger(lineNumber) || lineNumber < 1) return;
     onOpenFileReference({ path, lineNumber });
   }
@@ -450,7 +454,7 @@
   });
 </script>
 
-<div bind:this={container} onclick={handleClick}>
+<div bind:this={container} role="button" tabindex="0" onclick={handleClick} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && handleClickTarget(e.target)}>
   <Comark markdown={content} options={COMARK_OPTIONS} class={`markdown-body ${className}`.trim()} />
 </div>
 

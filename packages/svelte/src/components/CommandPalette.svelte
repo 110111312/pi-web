@@ -79,15 +79,20 @@
         <li
           class="command-item"
           class:highlighted={idx === highlightedIndex}
-          onclick={() => onSelect(cmd.name)}
-          onmouseenter={() => (highlightedIndex = idx)}
         >
-          <div class="command-copy">
-            <span class="cmd-name">/{cmd.name}</span>
-            {#if cmd.description}
-              <span class="cmd-desc">{cmd.description}</span>
-            {/if}
-          </div>
+          <button
+            class="command-item-btn"
+            type="button"
+            onclick={() => onSelect(cmd.name)}
+            onmouseenter={() => (highlightedIndex = idx)}
+          >
+            <div class="command-copy">
+              <span class="cmd-name">/{cmd.name}</span>
+              {#if cmd.description}
+                <span class="cmd-desc">{cmd.description}</span>
+              {/if}
+            </div>
+          </button>
         </li>
       {/each}
     </ul>
@@ -135,10 +140,24 @@
     display: flex;
     align-items: center;
     min-height: 38px;
-    padding: 8px 12px;
+    padding: 0;
     border-radius: 10px;
-    cursor: pointer;
     transition: background 0.1s ease;
+  }
+
+  .command-item-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
   }
 
   .command-item:hover,

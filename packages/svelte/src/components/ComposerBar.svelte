@@ -29,7 +29,7 @@
     workspaceEntries = [] as readonly RpcWorkspaceEntry[],
     workspaceEntriesLoading = false,
     workspaceContextKey = null as string | null,
-    ensureWorkspaceEntries = (_?: boolean) => Promise.resolve([] as RpcWorkspaceEntry[]),
+    ensureWorkspaceEntries = ((_force?: boolean) => Promise.resolve([] as RpcWorkspaceEntry[])) as (force?: boolean) => Promise<RpcWorkspaceEntry[]>,
     models = [] as readonly RpcModelInfo[],
     selectedModel = null as RpcModelInfo | null,
     thinkingLevel = null as RpcThinkingLevel | null,
@@ -38,12 +38,12 @@
     revision = null as { entryId: string; text: string; preview: string; hasImages: boolean; images: RpcImageContent[] } | null,
     pendingMessageCount = 0,
     editQueuedPayload = null as { text: string; images: RpcImageContent[] } | null,
-    onSubmit = (_: { message: string; images: RpcImageContent[]; revisionEntryId?: string; steer?: boolean }) => {},
-    onAbort = () => {},
-    onCancelRevision = () => {},
-    onSelectModel = (_: RpcModelInfo) => {},
-    onSelectThinkingLevel = (_: RpcThinkingLevel) => {},
-    onToggleAutoCompaction = (_: boolean) => {},
+    onSubmit = ((_: { message: string; images: RpcImageContent[]; revisionEntryId?: string; steer?: boolean }) => {}) as (payload: { message: string; images: RpcImageContent[]; revisionEntryId?: string; steer?: boolean }) => void,
+    onAbort = (() => {}) as () => void,
+    onCancelRevision = (() => {}) as () => void,
+    onSelectModel = ((_: RpcModelInfo) => {}) as (model: RpcModelInfo) => void,
+    onSelectThinkingLevel = ((_: RpcThinkingLevel) => {}) as (level: RpcThinkingLevel) => void,
+    onToggleAutoCompaction = ((_: boolean) => {}) as (enabled: boolean) => void,
     gitBranch = null as string | null,
     gitRepoState = null as RpcGitRepoState | null,
     gitRepoLoading = false,
@@ -213,6 +213,8 @@
       class="composer-dock"
       class:disabled={composer.isDisabled}
       class:drag-active={composer.isDragActive}
+      role="region"
+      aria-label="Message composer"
       ondragenter={composer.handleDragEnter}
       ondragover={composer.handleDragOver}
       ondragleave={composer.handleDragLeave}
@@ -302,7 +304,7 @@
           onselect={handleInputInteraction}
           onfocus={handleInputInteraction}
           onpaste={handleInputPaste}
-        />
+        ></textarea>
       </div>
 
       <div class="composer-footer-row">
@@ -699,8 +701,6 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-
-  .stop-icon { width: 13px; height: 13px; }
 
   .composer-footer-row {
     display: flex;

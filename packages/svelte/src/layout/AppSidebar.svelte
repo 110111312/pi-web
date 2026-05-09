@@ -100,7 +100,7 @@
     {/snippet}
   </SessionRail>
 </aside>
-<div class="rail-backdrop" onclick={onCloseSidebar}></div>
+<div class="rail-backdrop" role="button" tabindex="0" onclick={onCloseSidebar} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && onCloseSidebar()}></div>
 
 <style>
   .left-rail {

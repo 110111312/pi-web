@@ -85,8 +85,8 @@
 </script>
 
 {#if request}
-  <div class="dialog-overlay" onclick={handleCancel}>
-    <div class="dialog-panel" onclick={(e) => e.stopPropagation()}>
+  <div class="dialog-overlay" role="button" tabindex="0" onclick={handleCancel} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && handleCancel()}>
+    <div class="dialog-panel" role="dialog" aria-modal="true" aria-label={request.title} tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="dialog-header">
         <div>
           <div class="dialog-kicker">Extension request</div>
@@ -104,11 +104,16 @@
               <li
                 class="select-item"
                 class:selected={selectedIndex === i}
-                onclick={() => handleSelect(option)}
-                onmouseenter={() => (selectedIndex = i)}
-                onmouseleave={() => (selectedIndex = -1)}
               >
-                {option}
+                <button
+                  class="select-item-btn"
+                  type="button"
+                  onclick={() => handleSelect(option)}
+                  onmouseenter={() => (selectedIndex = i)}
+                  onmouseleave={() => (selectedIndex = -1)}
+                >
+                  {option}
+                </button>
               </li>
             {/each}
           </ul>
@@ -252,16 +257,28 @@
   }
 
   .select-item {
-    padding: 12px 14px;
+    padding: 0;
     border-radius: 10px;
-    cursor: pointer;
-    color: var(--text);
-    font-size: 0.9rem;
     transition:
       background 0.1s ease,
       border-color 0.1s ease;
     border: 1px solid var(--border);
     background: var(--panel-2);
+    list-style: none;
+  }
+
+  .select-item-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
   }
 
   .select-item:hover,

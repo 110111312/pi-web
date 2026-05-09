@@ -51,7 +51,7 @@
   const RECENT_SESSION_LIMIT = 5;
   const MENU_WIDTH = 136;
   const MENU_HEIGHT = 44;
-  const WORKSPACE_FOLDER_ICON_SIZE = 15;
+  const WORKSPACE_FOLDER_ICON_SIZE = 14;
   const WORKSPACE_FOLDER_ICON_STYLE = "display: block; flex-shrink: 0;";
 
   interface WorkspaceGroup {
@@ -261,7 +261,7 @@
   });
 </script>
 
-<div class="session-rail" onclick={closeMenu}>
+<div class="session-rail" role="button" tabindex="0" onclick={closeMenu} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && closeMenu()}>
   <div class="rail-header">
     <span class="rail-title">Workspaces</span>
     <div class="rail-actions">
@@ -288,7 +288,6 @@
             >
               {#if workspace.isExpanded}
                 <FolderOpen
-                  class="workspace-icon"
                   aria-hidden="true"
                   size={WORKSPACE_FOLDER_ICON_SIZE}
                   color="var(--text-subtle)"
@@ -296,7 +295,6 @@
                 />
               {:else}
                 <Folder
-                  class="workspace-icon"
                   aria-hidden="true"
                   size={WORKSPACE_FOLDER_ICON_SIZE}
                   color="var(--text-subtle)"
@@ -376,10 +374,12 @@
 {#if activeOlderWorkspace}
   <div
     class="older-modal-overlay"
+    role="button"
+    tabindex="0"
     onclick={handleOlderSessionsOverlayClick}
-    onkeydown={(event) => event.key === "Escape" && closeOlderSessions()}
+    onkeydown={(event) => event.key === "Escape" ? closeOlderSessions() : (event.key === "Enter" || event.key === " ") ? handleOlderSessionsOverlayClick(event as unknown as MouseEvent) : undefined}
   >
-    <section
+    <div
       class="older-modal"
       role="dialog"
       aria-modal="true"
@@ -393,7 +393,6 @@
           autocomplete="off"
           spellcheck="false"
           placeholder="Search older sessions"
-          autofocus
         />
       </label>
 
@@ -436,27 +435,30 @@
           <p class="modal-empty">No matching sessions</p>
         {/if}
       </div>
-    </section>
+    </div>
   </div>
 {/if}
 
 {#if menu.visible}
   <div
     class="menu-overlay"
+    role="button"
+    tabindex="0"
     onclick={closeMenu}
+    onkeydown={(e) => (e.key === "Enter" || e.key === " " || e.key === "Escape") && closeMenu()}
     oncontextmenu={(event) => {
       event.preventDefault();
       event.stopPropagation();
       closeMenu();
     }}
   >
-    <div class="menu-panel show" style={menuPanelStyle} onclick={(event) => event.stopPropagation()}>
+    <div class="menu-panel show" style={menuPanelStyle} role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
       <button
         class="menu-item danger"
         type="button"
         onclick={() => menu.sessionPath && handleDelete(menu.sessionPath)}
       >
-        <Trash2 class="menu-icon" aria-hidden="true" size={13} />
+        <Trash2 aria-hidden="true" size={13} style="opacity: 0.7; flex-shrink: 0" />
         <span>Delete</span>
       </button>
     </div>
@@ -554,13 +556,6 @@
   .workspace-row:focus-within {
     background: var(--surface-hover);
     color: var(--text);
-  }
-
-  .workspace-icon {
-    width: 14px;
-    height: 14px;
-    color: var(--text-subtle);
-    flex-shrink: 0;
   }
 
   .workspace-copy {
@@ -936,17 +931,6 @@
   .menu-item.danger:hover {
     background: var(--error-bg);
     color: var(--error-text);
-  }
-
-  .menu-icon {
-    width: 13px;
-    height: 13px;
-    flex-shrink: 0;
-    opacity: 0.7;
-  }
-
-  .menu-item:hover .menu-icon {
-    opacity: 1;
   }
 
   @keyframes session-running-blink {

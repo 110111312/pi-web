@@ -178,7 +178,7 @@
   {#if isOpen}
     <div class="model-menu">
       <label class="model-search">
-        <Search class="model-search-icon" aria-hidden="true" size={13} />
+        <Search aria-hidden="true" size={13} style="flex-shrink: 0; color: var(--text-subtle)" />
         <input
           bind:this={searchInputRef}
           bind:value={searchText}
@@ -209,7 +209,7 @@
                   >
                 </div>
                 {#if getModelKey(model) === selectedKey}
-                  <Check class="model-option-check" aria-hidden="true" size={14} />
+                  <Check aria-hidden="true" size={14} />
                 {/if}
               </button>
             </li>
@@ -309,13 +309,6 @@
     background: var(--panel);
   }
 
-  .model-search-icon {
-    width: 13px;
-    height: 13px;
-    color: var(--text-subtle);
-    flex-shrink: 0;
-  }
-
   .model-search-input {
     width: 100%;
     border: none;
@@ -404,13 +397,6 @@
     font-family: var(--pi-font-mono);
     font-size: 0.62rem;
     color: var(--text-subtle);
-  }
-
-  .model-option-check {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--text-muted);
   }
 
   .model-empty {

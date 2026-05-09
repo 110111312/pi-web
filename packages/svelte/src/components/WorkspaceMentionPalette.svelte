@@ -87,13 +87,18 @@
         <li
           class="workspace-item"
           class:highlighted={idx === highlightedIndex}
-          onclick={() => onSelect(item)}
-          onmouseenter={() => (highlightedIndex = idx)}
         >
-          <div class="workspace-copy">
-            <span class="workspace-name">{item.label}</span>
-            <span class="workspace-path">{item.description}</span>
-          </div>
+          <button
+            class="workspace-item-btn"
+            type="button"
+            onclick={() => onSelect(item)}
+            onmouseenter={() => (highlightedIndex = idx)}
+          >
+            <div class="workspace-copy">
+              <span class="workspace-name">{item.label}</span>
+              <span class="workspace-path">{item.description}</span>
+            </div>
+          </button>
         </li>
       {/each}
     </ul>
@@ -134,10 +139,24 @@
     display: flex;
     align-items: center;
     min-height: 42px;
-    padding: 8px 12px;
+    padding: 0;
     border-radius: 10px;
-    cursor: pointer;
     transition: background 0.1s ease;
+  }
+
+  .workspace-item-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
   }
 
   .workspace-item:hover,

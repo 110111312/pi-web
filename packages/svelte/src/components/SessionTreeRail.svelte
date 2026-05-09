@@ -411,11 +411,6 @@
       padding: 12px 10px max(10px, env(safe-area-inset-bottom));
     }
 
-    .nav-button {
-      width: 32px;
-      height: 32px;
-    }
-
     .search-input {
       height: 36px;
       border-radius: 10px;

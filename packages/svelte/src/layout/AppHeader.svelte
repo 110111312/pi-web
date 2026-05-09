@@ -54,7 +54,7 @@
       aria-label="Toggle sidebar"
       onclick={onToggleSidebar}
     >
-      <Menu class="hamburger-icon" aria-hidden="true" size={18} />
+      <Menu aria-hidden="true" size={16} />
     </button>
     <button
       class="sidebar-collapse"
@@ -68,9 +68,9 @@
       onclick={onToggleSidebarCollapse}
     >
       {#if sidebarCollapsed}
-        <PanelLeftOpen class="sidebar-collapse-icon" aria-hidden="true" size={16} />
+        <PanelLeftOpen aria-hidden="true" size={14} />
       {:else}
-        <PanelLeftClose class="sidebar-collapse-icon" aria-hidden="true" size={16} />
+        <PanelLeftClose aria-hidden="true" size={14} />
       {/if}
     </button>
     <div class="header-brand">
@@ -94,9 +94,9 @@
         onclick={onToggleOutlineSidebar}
       >
         {#if outlineSidebarOpen}
-          <PanelRightClose class="outline-toggle-icon" aria-hidden="true" size={16} />
+          <PanelRightClose aria-hidden="true" size={14} />
         {:else}
-          <PanelRightOpen class="outline-toggle-icon" aria-hidden="true" size={16} />
+          <PanelRightOpen aria-hidden="true" size={14} />
         {/if}
       </button>
     {/if}
@@ -109,7 +109,7 @@
         title={debugModeLabel}
         onclick={onToggleDebugMode}
       >
-        <Bug class="debug-icon" aria-hidden="true" size={16} />
+        <Bug aria-hidden="true" size={14} />
         <span class="debug-label">Debug</span>
       </button>
     {/if}
@@ -120,7 +120,7 @@
       title="Open appearance settings"
       onclick={onOpenThemeSettings}
     >
-      <Palette class="appearance-icon" aria-hidden="true" size={16} />
+      <Palette aria-hidden="true" size={14} />
     </button>
     <button
       class="theme-toggle"
@@ -130,9 +130,9 @@
       onclick={onToggleTheme}
     >
       {#if theme === "dark"}
-        <Sun class="theme-icon" aria-hidden="true" size={16} />
+        <Sun aria-hidden="true" size={14} />
       {:else}
-        <Moon class="theme-icon" aria-hidden="true" size={16} />
+        <Moon aria-hidden="true" size={14} />
       {/if}
     </button>
   </div>
@@ -171,11 +171,6 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-  }
-
-  .hamburger-icon {
-    width: 16px;
-    height: 16px;
   }
 
   .header-brand {
@@ -285,15 +280,6 @@
     height: 22px;
     padding: 0;
     flex: 0 0 22px;
-  }
-
-  .sidebar-collapse-icon,
-  .outline-toggle-icon,
-  .debug-icon,
-  .appearance-icon,
-  .theme-icon {
-    width: 14px;
-    height: 14px;
   }
 
   @media (max-width: 900px) {

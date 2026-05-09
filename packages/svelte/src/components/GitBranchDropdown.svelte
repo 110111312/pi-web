@@ -290,7 +290,7 @@
       onclick={toggleDropdown}
       onkeydown={handleTriggerKeydown}
     >
-      <GitBranchIcon class="git-trigger-icon" aria-hidden="true" size={12} />
+      <GitBranchIcon aria-hidden="true" size={12} />
       <span class="git-trigger-text">{displayLabel}</span>
     </button>
 
@@ -352,6 +352,7 @@
           <ul
             bind:this={listRef}
             class="git-list"
+            role="listbox"
             tabindex="-1"
             onkeydown={handleSearchKeydown}
           >
@@ -426,13 +427,6 @@
   .git-trigger:disabled {
     cursor: not-allowed;
     opacity: 0.72;
-  }
-
-  .git-trigger-icon {
-    width: 12px;
-    height: 12px;
-    flex-shrink: 0;
-    color: var(--text-subtle);
   }
 
   .git-trigger-text {
@@ -658,13 +652,6 @@
     font-family: var(--pi-font-mono);
     font-size: 0.8rem;
     color: var(--text);
-  }
-
-  .git-option-check {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--text-muted);
   }
 
   @media (max-width: 640px) {

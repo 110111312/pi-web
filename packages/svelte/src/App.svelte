@@ -832,10 +832,14 @@
   />
 
   {#if showLeftRailResizer}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
       class="rail-resizer left"
       class:active={activeRailResize?.side === "left"}
       style={leftRailResizerStyle}
+      role="separator"
+      aria-label="Resize left sidebar. Double-click to reset."
+      tabindex="0"
       title="Drag to resize bridge.sessions sidebar. Double-click to reset."
       onpointerdown={(e) => startRailResize("left", e)}
       ondblclick={() => resetRailWidth("left")}
@@ -925,10 +929,14 @@
       />
 
       {#if showRightRailResizer}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
           class="rail-resizer right"
           class:active={activeRailResize?.side === "right"}
           style={rightRailResizerStyle}
+          role="separator"
+          aria-label="Resize right sidebar. Double-click to reset."
+          tabindex="0"
           title="Drag to resize the right sidebar. Double-click to reset."
           onpointerdown={(e) => startRailResize("right", e)}
           ondblclick={() => resetRailWidth("right")}

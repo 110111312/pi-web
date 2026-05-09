@@ -193,7 +193,7 @@
   >
     <span class="thinking-trigger-label" aria-hidden="true">Thinking</span>
     <span class="thinking-trigger-value">{selectedLabel}</span>
-    <ChevronDown class="thinking-trigger-caret" aria-hidden="true" size={11} />
+    <ChevronDown aria-hidden="true" size={11} style="flex-shrink: 0; color: var(--text-subtle)" />
   </button>
 
   {#if isOpen}
@@ -221,7 +221,6 @@
               <span class="thinking-option-label">{option.label}</span>
               {#if option.value === selectedLevel}
                 <Check
-                  class="thinking-option-check"
                   aria-hidden="true"
                   size={14}
                 />
@@ -298,13 +297,6 @@
     white-space: nowrap;
   }
 
-  .thinking-trigger-caret {
-    width: 11px;
-    height: 11px;
-    flex-shrink: 0;
-    color: var(--text-subtle);
-  }
-
   .thinking-menu {
     position: absolute;
     left: 0;
@@ -372,13 +364,6 @@
     font-family: var(--pi-font-mono);
     font-size: 0.72rem;
     color: var(--text);
-  }
-
-  .thinking-option-check {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--text-muted);
   }
 
   @media (max-width: 640px) {

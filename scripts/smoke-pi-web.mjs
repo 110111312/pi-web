@@ -22,7 +22,7 @@ function resolvePiCommand() {
   const localCli = join(
     projectRoot,
     "node_modules",
-    "@mariozechner",
+    "@earendil-works",
     "pi-coding-agent",
     "dist",
     "cli.js",

@@ -1,6 +1,7 @@
 # pi-web
 
-A dashboard based on pi agent SDK.
+A dashboard based on pi agent SDK. Full slop project to apply the
+comprehension about agentic coding by me.
 
 Now the dashboard release as a pi extension, after installing the extension, you
 can press `/web` in the pi tui and open the `localhost:7036` in your browser to

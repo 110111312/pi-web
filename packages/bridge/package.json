@@ -1,6 +1,6 @@
 {
   "name": "@pi-web/bridge",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "WebSocket RPC bridge server for Pi Web",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@pi-web/svelte",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Svelte 5 web client for Pi Web",
   "type": "module",

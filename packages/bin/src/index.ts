@@ -14,11 +14,16 @@ import {
   type ExtensionAPI,
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { isBridgeExitInput } from "@pi-web/bridge/exit-input";
-import { startBridge, type BridgeController } from "@pi-web/bridge/lifecycle";
-import { createBridgeTerminalView } from "@pi-web/bridge/terminal-log-view";
 import { DEFAULT_BRIDGE_CONFIG, type BridgeConfig } from "@pi-web/bridge/types";
 import type { WsRpcAdapterContext } from "@pi-web/bridge/ws-rpc-adapter";
+import { isBridgeExitInput } from "./exit-input.js";
+import { startBridge, type BridgeController } from "./lifecycle.js";
+import {
+  createBridgeSessionActions,
+  createBridgeSessionEvents,
+  createBridgeSessionState,
+} from "./pi-live-session.js";
+import { createBridgeTerminalView } from "./terminal-log-view.js";
 
 const HEADLESS_ENV = "PI_WEB_HEADLESS";
 const READY_FILE_ENV = "PI_WEB_READY_FILE";
@@ -81,6 +86,7 @@ async function runHeadlessWebBridge(
   config: BridgeConfig,
   adapterContext: WsRpcAdapterContext,
   options: WebCommandOptions,
+  ctx: ExtensionCommandContext,
 ): Promise<void> {
   let resolveStopped: (() => void) | undefined;
   const stopped = new Promise<void>(resolve => {
@@ -128,7 +134,7 @@ async function runHeadlessWebBridge(
 
   process.on("SIGINT", onSigint);
   process.on("SIGTERM", onSigterm);
-  adapterContext.ctx.signal?.addEventListener("abort", onAbort, { once: true });
+  ctx.signal?.addEventListener("abort", onAbort, { once: true });
 
   const shutdownPoll = options.shutdownFile
     ? setInterval(() => {
@@ -144,7 +150,7 @@ async function runHeadlessWebBridge(
   } finally {
     process.off("SIGINT", onSigint);
     process.off("SIGTERM", onSigterm);
-    adapterContext.ctx.signal?.removeEventListener("abort", onAbort);
+    ctx.signal?.removeEventListener("abort", onAbort);
     if (shutdownPoll) {
       clearInterval(shutdownPoll);
     }
@@ -157,8 +163,9 @@ async function webBridgeHandler(
   pi: ExtensionAPI,
 ): Promise<void> {
   const adapterContext: WsRpcAdapterContext = {
-    pi,
-    ctx,
+    events: createBridgeSessionEvents(pi),
+    state: createBridgeSessionState(ctx, pi),
+    actions: createBridgeSessionActions(pi, ctx),
   };
 
   const thisFile = fileURLToPath(import.meta.url);
@@ -177,7 +184,7 @@ async function webBridgeHandler(
   };
 
   if (options.headless) {
-    await runHeadlessWebBridge(config, adapterContext, options);
+    await runHeadlessWebBridge(config, adapterContext, options, ctx);
     return;
   }
 

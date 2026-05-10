@@ -1,14 +1,13 @@
 import * as http from "node:http";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { BridgeEventBus } from "../bridge-event-bus.js";
-import { BridgeServer } from "../server.js";
+import {
+  BridgeServer,
+  type WsConnectionHandler,
+  type WsConnectionHandlerFactory,
+} from "../server.js";
 import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "../types.js";
-import type { WsRpcAdapterContext } from "../ws-rpc-adapter.js";
 
 const waitForAsyncWork = (ms = 100) =>
   new Promise(resolve => setTimeout(resolve, ms));
@@ -62,86 +61,29 @@ const requestText = (
   });
 
 describe("BridgeServer", () => {
-  const createMockContext = (): WsRpcAdapterContext => {
-    const sessionManager = {
-      getCwd: vi.fn().mockReturnValue("/test/project"),
-      getSessionDir: vi.fn().mockReturnValue("/test"),
-      getSessionId: vi.fn().mockReturnValue("test-session"),
-      getSessionFile: vi.fn().mockReturnValue("/test/session.json"),
-      getLeafId: vi.fn().mockReturnValue(null),
-      getLeafEntry: vi.fn().mockReturnValue(undefined),
-      getEntry: vi.fn().mockReturnValue(undefined),
-      getLabel: vi.fn().mockReturnValue(undefined),
-      getBranch: vi.fn().mockReturnValue([]),
-      getHeader: vi.fn().mockReturnValue(null),
-      getEntries: vi.fn().mockReturnValue([]),
-      getTree: vi.fn().mockReturnValue([]),
-      getSessionName: vi.fn().mockReturnValue(undefined),
+  const createMockHandler = (): WsConnectionHandler => ({
+    dispose: vi.fn(),
+  });
+
+  const createMockHandlerFactory = (
+    handlers: WsConnectionHandler[],
+  ): WsConnectionHandlerFactory => {
+    return _ctx => {
+      const handler = createMockHandler();
+      handlers.push(handler);
+      return handler;
     };
-
-    const model = {
-      id: "test-model",
-      name: "Test Model",
-      api: "openai-responses",
-      provider: "test",
-      baseUrl: "https://example.com",
-      reasoning: true,
-      input: ["text"] as const,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 1000,
-      maxTokens: 1000,
-    };
-
-    const pi = {
-      sendUserMessage: vi.fn(),
-      setModel: vi.fn().mockResolvedValue(true),
-      setThinkingLevel: vi.fn(),
-      getThinkingLevel: vi.fn().mockReturnValue("medium"),
-      setSessionName: vi.fn(),
-      getSessionName: vi.fn().mockReturnValue(undefined),
-      getCommands: vi.fn().mockReturnValue([]),
-      on: vi.fn(),
-    } as unknown as ExtensionAPI;
-
-    const ctx = {
-      sessionManager,
-      model,
-      modelRegistry: {
-        getAvailable: vi.fn().mockReturnValue([]),
-      } as unknown as ExtensionCommandContext["modelRegistry"],
-      isIdle: vi.fn().mockReturnValue(true),
-      signal: undefined,
-      abort: vi.fn(),
-      compact: vi.fn(),
-      shutdown: vi.fn(),
-      hasPendingMessages: vi.fn().mockReturnValue(false),
-      getContextUsage: vi
-        .fn()
-        .mockReturnValue({ tokens: 100, contextWindow: 1000, percent: 10 }),
-      getSystemPrompt: vi.fn().mockReturnValue("test prompt"),
-      cwd: "/test/project",
-      ui: {
-        custom: vi.fn(),
-      },
-      hasUI: true,
-      waitForIdle: vi.fn().mockResolvedValue(undefined),
-      newSession: vi.fn().mockResolvedValue({ cancelled: false }),
-      fork: vi.fn().mockResolvedValue({ cancelled: false }),
-      navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
-      switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-      reload: vi.fn().mockResolvedValue(undefined),
-    } as unknown as ExtensionCommandContext;
-
-    return { pi, ctx };
   };
 
   let eventBus: BridgeEventBus;
-  let mockContext: WsRpcAdapterContext;
+  let handlerFactory: WsConnectionHandlerFactory;
+  let createdHandlers: WsConnectionHandler[];
   let events: BridgeEvent[];
 
   beforeEach(() => {
     eventBus = new BridgeEventBus(DEFAULT_BRIDGE_CONFIG);
-    mockContext = createMockContext();
+    createdHandlers = [];
+    handlerFactory = createMockHandlerFactory(createdHandlers);
     events = [];
   });
 
@@ -153,7 +95,7 @@ describe("BridgeServer", () => {
     it("starts on an available port and emits server_start", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -174,7 +116,7 @@ describe("BridgeServer", () => {
     it("rejects a second start while already running", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -188,7 +130,7 @@ describe("BridgeServer", () => {
     it("stops gracefully and clears its address", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -204,7 +146,7 @@ describe("BridgeServer", () => {
     it("stops even when a browser websocket is still connected", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -238,7 +180,7 @@ describe("BridgeServer", () => {
     it("can restart after a full stop", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -278,7 +220,7 @@ describe("BridgeServer", () => {
           port: preferredPort,
           portMax: preferredPort + 3,
         },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -302,7 +244,7 @@ describe("BridgeServer", () => {
     it("uses an OS-assigned port when configured with port 0", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -322,7 +264,7 @@ describe("BridgeServer", () => {
     it("serves HTTP GET without requiring a token", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -339,7 +281,7 @@ describe("BridgeServer", () => {
     it("ignores legacy token query params and cookies", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -361,7 +303,7 @@ describe("BridgeServer", () => {
     it("serves placeholder HTML at the root when no staticDir is configured", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -380,7 +322,7 @@ describe("BridgeServer", () => {
     it("returns 404 for unknown files when no staticDir is configured", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -398,7 +340,7 @@ describe("BridgeServer", () => {
     it("rejects non-GET methods", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -421,7 +363,7 @@ describe("BridgeServer", () => {
     it("accepts WS connect without a token", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -441,7 +383,7 @@ describe("BridgeServer", () => {
     it("accepts WS connect when a legacy token query param is present", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -465,7 +407,7 @@ describe("BridgeServer", () => {
     it("reflects WebSocket clients as they connect and disconnect", async () => {
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -503,9 +445,11 @@ describe("BridgeServer", () => {
       let clientCountAtConnect = -1;
       let connectedClientId: string | undefined;
 
+      const localHandlers: WsConnectionHandler[] = [];
+      const localFactory = createMockHandlerFactory(localHandlers);
       server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0 },
-        mockContext,
+        localFactory,
         eventBus,
         event => {
           events.push(event);
@@ -552,7 +496,7 @@ describe("BridgeServer", () => {
 
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0, staticDir: tmpDir },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -602,7 +546,7 @@ describe("BridgeServer", () => {
 
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0, staticDir: tmpDir },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );
@@ -639,7 +583,7 @@ describe("BridgeServer", () => {
 
       const server = new BridgeServer(
         { ...DEFAULT_BRIDGE_CONFIG, port: 0, staticDir: tmpDir },
-        mockContext,
+        handlerFactory,
         eventBus,
         event => events.push(event),
       );

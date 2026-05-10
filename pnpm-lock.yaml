@@ -45,6 +45,9 @@ importers:
       '@pi-web/bridge':
         specifier: workspace:*
         version: link:../bridge
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
     devDependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.74.0
@@ -52,12 +55,18 @@ importers:
       '@types/node':
         specifier: ^24.3.0
         version: 24.12.2
+      '@types/ws':
+        specifier: ^8.18.0
+        version: 8.18.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
       vite:
         specifier: ^8.0.0
         version: 8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.7.0)(yaml@2.8.3)
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.8.3)
 
   packages/bridge:
     dependencies:

@@ -4,14 +4,14 @@ import { defineConfig } from "vite";
 export default defineConfig({
   resolve: {
     alias: {
-      "@pi-web/bridge": resolve(__dirname, "../bridge"),
+      "@pi-web/bridge": resolve(__dirname, "../bridge/src"),
     },
   },
   build: {
     outDir: "../../dist/bin",
     emptyOutDir: true,
     lib: {
-      entry: resolve(__dirname, "index.ts"),
+      entry: resolve(__dirname, "src/index.ts"),
       formats: ["es"],
       fileName: "index",
     },

@@ -2,11 +2,16 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "@pi-web/bridge/types";
+import type { WsRpcAdapterContext } from "@pi-web/bridge/ws-rpc-adapter";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { startBridge, type BridgeController } from "../lifecycle.js";
-import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "../types.js";
-import type { WsRpcAdapterContext } from "../ws-rpc-adapter.js";
+import {
+  createBridgeSessionActions,
+  createBridgeSessionEvents,
+  createBridgeSessionState,
+} from "../pi-live-session.js";
 
 const waitForAsyncWork = (ms = 100) =>
   new Promise(resolve => setTimeout(resolve, ms));
@@ -82,7 +87,11 @@ describe("Bridge Lifecycle", () => {
       reload: vi.fn().mockResolvedValue(undefined),
     } as unknown as ExtensionCommandContext;
 
-    return { pi, ctx };
+    return {
+      events: createBridgeSessionEvents(pi),
+      state: createBridgeSessionState(ctx, pi),
+      actions: createBridgeSessionActions(pi, ctx),
+    };
   };
 
   let mockContext: WsRpcAdapterContext;

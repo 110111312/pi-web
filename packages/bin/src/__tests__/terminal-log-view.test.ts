@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { createBridgeTerminalView } from "../terminal-log-view.js";
 import {
   DEFAULT_BRIDGE_CONFIG,
   type BridgeEvent,
   type WsClient,
-} from "../types.js";
+} from "@pi-web/bridge/types";
+import { describe, expect, it, vi } from "vitest";
+import { createBridgeTerminalView } from "../terminal-log-view.js";
 
 describe("createBridgeTerminalView", () => {
   const client: WsClient = {

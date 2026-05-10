@@ -4,18 +4,26 @@
  * Handles:
  * - startBridge() with port range fallback
  * - SIGINT handler registration and cleanup
+ * - Wiring Pi's ExtensionAPI context into the RPC adapter
  * - stop() that closes everything and invokes done() callback
  */
 
-import { BridgeEventBus } from "./bridge-event-bus.js";
-import { BridgeServer } from "./server.js";
+import { BridgeEventBus } from "@pi-web/bridge/bridge-event-bus";
+import {
+  BridgeServer,
+  type WsConnectionHandlerFactory,
+} from "@pi-web/bridge/server";
+import { DetachedSessionRegistry } from "@pi-web/bridge/session-registry";
 import type {
   BridgeConfig,
   BridgeEvent,
   BridgeState,
   WsClient,
-} from "./types.js";
-import type { WsRpcAdapterContext } from "./ws-rpc-adapter.js";
+} from "@pi-web/bridge/types";
+import {
+  type WsRpcAdapterContext,
+  WsRpcAdapter,
+} from "@pi-web/bridge/ws-rpc-adapter";
 
 /**
  * Callback invoked when the bridge shuts down
@@ -40,11 +48,6 @@ export interface BridgeController {
 
 /**
  * Start the bridge with lifecycle management
- *
- * @param config Bridge configuration
- * @param context Pi extension context for command dispatch
- * @param done Callback invoked when bridge shuts down
- * @returns Bridge controller
  */
 export interface StartBridgeOptions {
   /**
@@ -66,6 +69,9 @@ export async function startBridge(
   // Event handlers for terminal log view
   const eventHandlers: Array<(event: BridgeEvent) => void> = [];
 
+  // Shared session registry for detached sessions
+  const sessionRegistry = new DetachedSessionRegistry(context.state.cwd);
+
   // Emit events to all handlers
   const emitEvent = (event: BridgeEvent): void => {
     // Emit to internal handlers (terminal log view)
@@ -80,8 +86,21 @@ export async function startBridge(
     eventBus.emit(event);
   };
 
-  // Create server
-  const server = new BridgeServer(config, context, eventBus, emitEvent);
+  // Connection handler factory: creates a WsRpcAdapter per WebSocket client
+  const handlerFactory: WsConnectionHandlerFactory = connCtx => {
+    return new WsRpcAdapter(
+      connCtx.client,
+      connCtx.ws,
+      context,
+      connCtx.config,
+      connCtx.eventBus,
+      connCtx.emitEvent,
+      sessionRegistry,
+    );
+  };
+
+  // Create server with the factory
+  const server = new BridgeServer(config, handlerFactory, eventBus, emitEvent);
 
   // State tracking
   let state: BridgeState = { status: "starting", port: config.port };
@@ -125,6 +144,9 @@ export async function startBridge(
 
       // Dispose event bus
       eventBus.dispose();
+
+      // Dispose session registry
+      sessionRegistry.dispose();
 
       state = { status: "stopped" };
 

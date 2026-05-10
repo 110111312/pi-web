@@ -3,19 +3,56 @@
  *
  * Handles:
  * - HTTP static file serving from config.staticDir (404 placeholder when no bundle)
- * - WebSocket upgrade creating a WsRpcAdapter per connection
+ * - WebSocket upgrade delegating to a WsConnectionHandler per connection
  * - Client tracking with monotonic sequence numbers
  */
 
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
-import { WebSocketServer, WebSocket } from "ws";
-import { BridgeEventBus } from "./bridge-event-bus.js";
+import { WebSocket, WebSocketServer } from "ws";
+import type { BridgeEventBus } from "./bridge-event-bus.js";
 import { getLanIps, isTailscaleIp } from "./network.js";
-import { DetachedSessionRegistry } from "./session-registry.js";
-import type { BridgeConfig, BridgeEvent, WsClient } from "./types.js";
-import { WsRpcAdapter, type WsRpcAdapterContext } from "./ws-rpc-adapter.js";
+import type {
+  BridgeConfig,
+  BridgeEvent,
+  ServerMessage,
+  WsClient,
+} from "./types.js";
+
+/**
+ * Handler for a single WebSocket connection.
+ *
+ * Implementations manage the full RPC lifecycle (parse messages, dispatch
+ * commands, fan-out events). The server only tracks the handler for
+ * shutdown and client-bookkeeping purposes.
+ */
+export interface WsConnectionHandler {
+  dispose(): void;
+}
+
+/**
+ * Context passed to the connection-handler factory when a new WebSocket
+ * client connects.
+ */
+export interface WsConnectionContext {
+  client: WsClient;
+  ws: WebSocket;
+  config: BridgeConfig;
+  eventBus: BridgeEventBus;
+  emitEvent: (event: BridgeEvent) => void;
+}
+
+/**
+ * Factory that creates a protocol handler for each new WebSocket connection.
+ *
+ * The returned handler is responsible for setting up WS event listeners
+ * (message / close / error), processing RPC commands, and tearing down
+ * when dispose() is called.
+ */
+export type WsConnectionHandlerFactory = (
+  ctx: WsConnectionContext,
+) => WsConnectionHandler;
 
 /**
  * Client counter for monotonic sequence numbers
@@ -34,14 +71,14 @@ function generateClientId(): string {
  */
 export class BridgeServer {
   private config: BridgeConfig;
-  private context: WsRpcAdapterContext;
+  private handlerFactory: WsConnectionHandlerFactory;
   private eventBus: BridgeEventBus;
   private emitEvent: (event: BridgeEvent) => void;
-  private sessionRegistry: DetachedSessionRegistry;
 
   private httpServer: http.Server | undefined;
   private wsServer: WebSocketServer | undefined;
-  private adapters = new Map<string, WsRpcAdapter>();
+  private handlers = new Map<string, WsConnectionHandler>();
+  private clients = new Map<string, WsClient>();
 
   private isRunning = false;
   private host: string = "localhost";
@@ -49,15 +86,14 @@ export class BridgeServer {
 
   constructor(
     config: BridgeConfig,
-    context: WsRpcAdapterContext,
+    handlerFactory: WsConnectionHandlerFactory,
     eventBus: BridgeEventBus,
     emitEvent: (event: BridgeEvent) => void,
   ) {
     this.config = config;
-    this.context = context;
+    this.handlerFactory = handlerFactory;
     this.eventBus = eventBus;
     this.emitEvent = emitEvent;
-    this.sessionRegistry = new DetachedSessionRegistry(context.ctx.cwd);
   }
 
   /**
@@ -204,15 +240,14 @@ export class BridgeServer {
 
     const openSockets = this.wsServer ? Array.from(this.wsServer.clients) : [];
 
-    // Resolve adapter-side state immediately, then force the sockets closed so
-    // wsServer.close() and httpServer.close() cannot hang on a stale browser tab.
-    for (const [_clientId, adapter] of this.adapters) {
-      adapter.dispose();
+    // Dispose all RPC handlers
+    for (const [_clientId, handler] of this.handlers) {
+      handler.dispose();
     }
-    this.adapters.clear();
+    this.handlers.clear();
+    this.clients.clear();
 
     await Promise.all(openSockets.map(ws => this.closeWebSocketConnection(ws)));
-    this.sessionRegistry.dispose();
 
     // Close WebSocket server
     if (this.wsServer) {
@@ -258,17 +293,14 @@ export class BridgeServer {
    * Get the number of connected clients
    */
   getClientCount(): number {
-    return this.adapters.size;
+    return this.clients.size;
   }
 
   /**
    * Get list of connected clients
    */
   getClients(): WsClient[] {
-    return Array.from(this.adapters.values()).map(adapter => {
-      // Access the private client field through type assertion
-      return (adapter as unknown as { client: WsClient }).client;
-    });
+    return Array.from(this.clients.values());
   }
 
   /**
@@ -382,17 +414,16 @@ export class BridgeServer {
 
     // Register the connection before emitting client_connect so any
     // render triggered by the event sees the updated client list.
-    const adapter = new WsRpcAdapter(
+    this.clients.set(client.id, client);
+
+    const handler = this.handlerFactory({
       client,
       ws,
-      this.context,
-      this.config,
-      this.eventBus,
-      this.emitEvent,
-      this.sessionRegistry,
-    );
-
-    this.adapters.set(client.id, adapter);
+      config: this.config,
+      eventBus: this.eventBus,
+      emitEvent: this.emitEvent,
+    });
+    this.handlers.set(client.id, handler);
 
     // Register client with EventBus for event fan-out
     const unregister = this.eventBus.registerClient(client, data => {
@@ -410,7 +441,8 @@ export class BridgeServer {
     // Clean up on close
     ws.on("close", () => {
       unregister();
-      this.adapters.delete(client.id);
+      this.handlers.delete(client.id);
+      this.clients.delete(client.id);
       this.emitEvent({
         type: "client_disconnect",
         client,
@@ -466,9 +498,6 @@ function injectRuntimeConfig(html: string): string {
     : `${configScript}${html}`;
 }
 
-/**
- * Parse a Cookie header string into a key-value map.
- */
 /**
  * Get placeholder HTML when no static bundle exists
  */

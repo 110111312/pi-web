@@ -8,14 +8,17 @@ import {
   type AgentEndEvent as PiAgentEndEvent,
   type AgentSession,
   type AgentSessionEvent,
-  type AgentStartEvent as PiAgentStartEvent,
-  type ExtensionAPI,
-  type ExtensionCommandContext,
   type ExtensionUIContext,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import type { WebSocket } from "ws";
 import type { BridgeEventBus } from "./bridge-event-bus.js";
+import type {
+  BridgeSessionActions,
+  BridgeSessionEvents,
+  BridgeSessionState,
+  BridgeLiveEvent,
+} from "./live-session.js";
 import { DetachedSessionRegistry } from "./session-registry.js";
 import type {
   BridgeConfig,
@@ -57,9 +60,22 @@ import type {
 } from "./types.js";
 import { detectWorkspaceEnvironments } from "./workspace-environment.js";
 
-type PiModel = Parameters<ExtensionAPI["setModel"]>[0];
-type PiThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
-type UserMessageContent = Parameters<ExtensionAPI["sendUserMessage"]>[0];
+/** Model shape mirrored from Pi — used in shaping helpers below. */
+type PiModel = {
+  id: string;
+  provider: string;
+  name?: string;
+  api?: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+};
+type UserMessageContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image"; data: string; mimeType: string }
+    >;
 type UserMessageBlock = Exclude<UserMessageContent, string>[number];
 type PiTextContent = Extract<UserMessageBlock, { type: "text" }>;
 type PiAgentMessage = NonNullable<PiAgentEndEvent["messages"]>[number];
@@ -98,11 +114,13 @@ type PiModelSelectEventLike = {
 };
 
 /**
- * Context passed to the adapter containing Pi extension APIs.
+ * Context passed to the adapter — three focused interfaces
+ * abstracting over the live Pi session.
  */
 export interface WsRpcAdapterContext {
-  pi: ExtensionAPI;
-  ctx: ExtensionCommandContext;
+  events: BridgeSessionEvents;
+  state: BridgeSessionState;
+  actions: BridgeSessionActions;
 }
 
 /**
@@ -181,9 +199,7 @@ function toRpcAgentStartEvent(sessionPath?: string | null): RpcAgentStartEvent {
 }
 
 function toRpcAgentEndEvent(
-  event: {
-    messages?: PiAgentEndEvent["messages"];
-  },
+  event: { messages?: unknown[] },
   sessionPath?: string | null,
 ): RpcAgentEndEvent {
   if (!Array.isArray(event.messages)) {
@@ -197,7 +213,7 @@ function toRpcAgentEndEvent(
     type: "agent_end",
     sessionPath: sessionPath ?? undefined,
     messages: event.messages.flatMap(message => {
-      const shaped = toRpcAgentMessage(message);
+      const shaped = toRpcAgentMessage(message as PiAgentMessage);
       return shaped ? [shaped] : [];
     }),
   };
@@ -345,16 +361,18 @@ function isPiModelSelectEventLike(
   );
 }
 
-function toRpcModelSelectEvent(
-  event: PiModelSelectEventLike,
-): RpcModelSelectEvent {
+function toRpcModelSelectEvent(event: {
+  model: PiModel;
+  previousModel?: PiModel;
+  source: string;
+}): RpcModelSelectEvent {
   return {
     type: "model_select",
     model: toRpcModel(event.model),
     previousModel: event.previousModel
       ? toRpcModel(event.previousModel)
       : undefined,
-    source: event.source,
+    source: event.source as RpcModelSelectEvent["source"],
   };
 }
 
@@ -2738,9 +2756,9 @@ class SessionRuntime {
   }
 
   isSessionRunning(sessionPath: string): boolean {
-    const liveSessionPath = this.context.ctx.sessionManager.getSessionFile();
+    const liveSessionPath = this.context.state.sessionManager.getSessionFile();
     if (liveSessionPath && sessionPath === liveSessionPath) {
-      return !this.context.ctx.isIdle();
+      return !this.context.state.isIdle();
     }
     return this.registry.isSessionRunning(sessionPath);
   }
@@ -2752,7 +2770,7 @@ class SessionRuntime {
   currentTranscriptSessionPath(): string | null {
     return (
       this.selectedSessionPath ??
-      this.context.ctx.sessionManager.getSessionFile() ??
+      this.context.state.sessionManager.getSessionFile() ??
       null
     );
   }
@@ -2776,7 +2794,7 @@ class SessionRuntime {
       }
     }
 
-    return this.context.ctx.cwd;
+    return this.context.state.cwd;
   }
 
   shouldHandleLiveSessionEvents(): boolean {
@@ -2786,7 +2804,7 @@ class SessionRuntime {
   buildCurrentTranscriptMessages(): RpcTranscriptMessage[] {
     if (this.isViewingLiveSession()) {
       return flattenMessagesForTranscript(
-        this.context.ctx.sessionManager.getBranch(),
+        this.context.state.sessionManager.getBranch(),
       );
     }
 
@@ -2800,7 +2818,7 @@ class SessionRuntime {
     }
 
     return flattenMessagesForTranscript(
-      this.context.ctx.sessionManager.getBranch(),
+      this.context.state.sessionManager.getBranch(),
     );
   }
 
@@ -2824,9 +2842,9 @@ class SessionRuntime {
       return buildTreeEntriesFromSession(activeSession.sessionManager);
     }
 
-    const liveSessionPath = this.context.ctx.sessionManager.getSessionFile();
+    const liveSessionPath = this.context.state.sessionManager.getSessionFile();
     if (!sessionPath || sessionPath === liveSessionPath) {
-      return buildTreeEntriesFromSession(this.context.ctx.sessionManager);
+      return buildTreeEntriesFromSession(this.context.state.sessionManager);
     }
 
     const cachedSession = this.registry.getCachedSessionManager(sessionPath);
@@ -2848,7 +2866,7 @@ class SessionRuntime {
       );
       if (activeSession) {
         const workspacePath =
-          activeSession.sessionManager.getCwd() ?? this.context.ctx.cwd;
+          activeSession.sessionManager.getCwd() ?? this.context.state.cwd;
         const workspaceEnvironments =
           detectWorkspaceEnvironments(workspacePath);
         return {
@@ -2881,37 +2899,41 @@ class SessionRuntime {
           this.registry
             .openSession(this.selectedSessionPath)
             .getSessionManager(),
-          this.context.ctx.cwd,
+          this.context.state.cwd,
         );
       }
     }
 
-    const { pi, ctx } = this.context;
-    const sessionFile = ctx.sessionManager.getSessionFile();
-    const workspaceEnvironments = detectWorkspaceEnvironments(ctx.cwd);
+    const sessionFile = this.context.state.sessionManager.getSessionFile();
+    const workspaceEnvironments = detectWorkspaceEnvironments(
+      this.context.state.cwd,
+    );
     return {
-      model: ctx.model,
-      thinkingLevel: pi.getThinkingLevel(),
-      isStreaming: !ctx.isIdle(),
+      model: this.context.state.getCurrentModel(),
+      thinkingLevel: normalizeThinkingLevel(
+        this.context.state.getThinkingLevel(),
+      ),
+      isStreaming: !this.context.state.isIdle(),
       isCompacting: false,
       steeringMode: "all",
       followUpMode: "all",
       sessionFile,
-      sessionId: ctx.sessionManager.getSessionId(),
+      sessionId: this.context.state.sessionManager.getSessionId(),
       sessionName: sessionDisplayName(
         {
           getSessionName: () => undefined,
-          getEntries: () => ctx.sessionManager.getEntries() ?? [],
-          getSessionId: () => ctx.sessionManager.getSessionId(),
+          getEntries: () =>
+            this.context.state.sessionManager.getEntries() ?? [],
+          getSessionId: () => this.context.state.sessionManager.getSessionId(),
         },
         sessionFile,
       ),
-      workspacePath: ctx.cwd,
+      workspacePath: this.context.state.cwd,
       ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
-      gitBranch: getCurrentGitBranch(ctx.cwd),
+      gitBranch: getCurrentGitBranch(this.context.state.cwd),
       autoCompactionEnabled: false,
-      messageCount: ctx.sessionManager.getEntries()?.length ?? 0,
-      pendingMessageCount: ctx.hasPendingMessages() ? 1 : 0,
+      messageCount: this.context.state.sessionManager.getEntries()?.length ?? 0,
+      pendingMessageCount: this.context.state.hasPendingMessages() ? 1 : 0,
     };
   }
 
@@ -2921,17 +2943,17 @@ class SessionRuntime {
       transcriptLimit?: number;
     } = {},
   ): Promise<SessionSummary> {
-    const { ctx } = this.context;
     const currentSessionFile =
-      this.currentDetachedSessionPath() ?? ctx.sessionManager.getSessionFile();
+      this.currentDetachedSessionPath() ??
+      this.context.state.sessionManager.getSessionFile();
     const currentSessionManager = this.selectedSessionPath
       ? this.registry.getCachedSessionManager(this.selectedSessionPath)
       : null;
     const targetCwd =
       options.workspacePath?.trim() ||
       currentSessionManager?.getCwd() ||
-      ctx.sessionManager.getCwd() ||
-      ctx.cwd;
+      this.context.state.sessionManager.getCwd() ||
+      this.context.state.cwd;
     const sessionDir = options.workspacePath
       ? workspaceSessionDirPath(targetCwd)
       : currentSessionFile
@@ -2979,7 +3001,7 @@ class SessionRuntime {
   async ensureDetachedSessionFromLive(options?: {
     skipInitialSnapshot?: boolean;
   }): Promise<AgentSession> {
-    const liveSessionPath = this.context.ctx.sessionManager.getSessionFile();
+    const liveSessionPath = this.context.state.sessionManager.getSessionFile();
     if (!liveSessionPath || !fs.existsSync(liveSessionPath)) {
       throw new Error("No session file available");
     }
@@ -3026,7 +3048,7 @@ class SessionRuntime {
   }
 
   private isViewingLiveSession(): boolean {
-    const liveSessionPath = this.context.ctx.sessionManager.getSessionFile();
+    const liveSessionPath = this.context.state.sessionManager.getSessionFile();
     return Boolean(
       this.selectedSessionPath &&
       liveSessionPath &&
@@ -3579,7 +3601,7 @@ export class WsRpcAdapter {
     this.eventBus = eventBus;
     this.emitEvent = emitEvent;
     this.detachedSessionRegistry =
-      sessionRegistry ?? new DetachedSessionRegistry(context.ctx.cwd);
+      sessionRegistry ?? new DetachedSessionRegistry(context.state.cwd);
     this.uiBridge = new ExtensionUIBridge(client.id, config, message => {
       this.sendResponse(message);
     });
@@ -3639,64 +3661,56 @@ export class WsRpcAdapter {
   subscribeToEvents(): void {
     void this.eventBus;
 
-    this.context.pi.on("agent_start", (_event: PiAgentStartEvent) => {
-      this.sendEvent(
-        toRpcAgentStartEvent(this.context.ctx.sessionManager.getSessionFile()),
-      );
-    });
+    this.context.events.subscribe(event => {
+      switch (event.type) {
+        case "agent_start":
+          this.sendEvent(
+            toRpcAgentStartEvent(
+              this.context.state.sessionManager.getSessionFile(),
+            ),
+          );
+          return;
 
-    this.context.pi.on("agent_end", (event: PiAgentEndEvent) => {
-      const liveSessionPath = this.context.ctx.sessionManager.getSessionFile();
-      this.sendEvent(toRpcAgentEndEvent(event, liveSessionPath));
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.sessionStatsPusher.queue(
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
-    });
+        case "agent_end": {
+          const liveSessionPath =
+            this.context.state.sessionManager.getSessionFile();
+          this.sendEvent(toRpcAgentEndEvent(event, liveSessionPath));
+          if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
+          this.sessionStatsPusher.queue(
+            this.sessionRuntime.currentTranscriptSessionPath(),
+          );
+          return;
+        }
 
-    this.context.pi.on("session_compact", () => {
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.sendTranscriptSnapshot(
-        this.sessionRuntime.buildCurrentTranscriptPage(),
-      );
-      this.sessionStatsPusher.queue(
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
-    });
+        case "session_compact":
+          if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
+          this.sendTranscriptSnapshot(
+            this.sessionRuntime.buildCurrentTranscriptPage(),
+          );
+          this.sessionStatsPusher.queue(
+            this.sessionRuntime.currentTranscriptSessionPath(),
+          );
+          return;
 
-    this.context.pi.on("message_start", (event: object) => {
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.handleTranscriptLifecycleEvent(
-        "message_start",
-        event,
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
-    });
+        case "message_start":
+        case "message_update":
+        case "message_end":
+          if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
+          this.handleTranscriptLifecycleEvent(
+            event.type,
+            event,
+            this.sessionRuntime.currentTranscriptSessionPath(),
+          );
+          return;
 
-    this.context.pi.on("message_update", (event: object) => {
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.handleTranscriptLifecycleEvent(
-        "message_update",
-        event,
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
-    });
-
-    this.context.pi.on("message_end", (event: object) => {
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.handleTranscriptLifecycleEvent(
-        "message_end",
-        event,
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
-    });
-
-    this.context.pi.on("model_select", event => {
-      if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
-      this.sendEvent(toRpcModelSelectEvent(event));
-      this.sessionStatsPusher.queue(
-        this.sessionRuntime.currentTranscriptSessionPath(),
-      );
+        case "model_select":
+          if (!this.sessionRuntime.shouldHandleLiveSessionEvents()) return;
+          this.sendEvent(toRpcModelSelectEvent(event));
+          this.sessionStatsPusher.queue(
+            this.sessionRuntime.currentTranscriptSessionPath(),
+          );
+          return;
+      }
     });
   }
 
@@ -3898,7 +3912,7 @@ export class WsRpcAdapter {
     if (!provider || !modelId) return 0;
 
     try {
-      const models = this.context.ctx.modelRegistry.getAvailable();
+      const models = this.context.state.getAvailableModels();
       const matched = models.find(
         model => model.provider === provider && model.id === modelId,
       );
@@ -3913,11 +3927,10 @@ export class WsRpcAdapter {
   private async buildSessionStats(
     targetPath?: string | null,
   ): Promise<RpcSessionStats> {
-    const { ctx } = this.context;
     const selectedSessionPath =
       this.sessionRuntime.currentDetachedSessionPath();
     const detachedSession = this.sessionRuntime.getDetachedSession();
-    const liveSessionPath = ctx.sessionManager.getSessionFile();
+    const liveSessionPath = this.context.state.sessionManager.getSessionFile();
     const resolvedTargetPath =
       targetPath === undefined
         ? (selectedSessionPath ?? liveSessionPath ?? null)
@@ -3987,11 +4000,11 @@ export class WsRpcAdapter {
       }
     }
 
-    const usage = ctx.getContextUsage();
-    const branch = ctx.sessionManager.getBranch();
+    const usage = this.context.state.getContextUsage();
+    const branch = this.context.state.sessionManager.getBranch();
     const summary = summarizeTokenUsage(
       branch,
-      ctx.sessionManager.getEntries(),
+      this.context.state.sessionManager.getEntries(),
     );
 
     let tokens: number | null = usage?.tokens ?? null;
@@ -4161,8 +4174,6 @@ export class WsRpcAdapter {
     command: RpcCommand,
     correlationId: string,
   ): Promise<RpcResponse> {
-    const { pi, ctx } = this.context;
-
     switch (command.type) {
       /* ====================================================================
        * Prompting and turn control
@@ -4173,7 +4184,7 @@ export class WsRpcAdapter {
         const images = normalizeRpcImages(command.images);
 
         // Auto-create a detached session when no session is selected.
-        // Without this, the fallback calls pi.sendUserMessage() which
+        // Without this, the fallback calls this.context.actions.sendUserMessage() which
         // drives the live Pi runtime and causes a TUI switch away from
         // the bridge's custom terminal view.
         let autoCreated: SessionSummary | null = null;
@@ -4245,9 +4256,12 @@ export class WsRpcAdapter {
             );
           });
         } else {
-          pi.sendUserMessage(buildUserMessageContent(command.message, images), {
-            deliverAs: "steer",
-          });
+          this.context.actions.sendUserMessage(
+            buildUserMessageContent(command.message, images),
+            {
+              deliverAs: "steer",
+            },
+          );
         }
         return {
           id: correlationId,
@@ -4268,9 +4282,12 @@ export class WsRpcAdapter {
             );
           });
         } else {
-          pi.sendUserMessage(buildUserMessageContent(command.message, images), {
-            deliverAs: "followUp",
-          });
+          this.context.actions.sendUserMessage(
+            buildUserMessageContent(command.message, images),
+            {
+              deliverAs: "followUp",
+            },
+          );
         }
         return {
           id: correlationId,
@@ -4286,7 +4303,7 @@ export class WsRpcAdapter {
           clearSteeringQueue(session);
           await session.abort();
         } else {
-          ctx.abort();
+          this.context.actions.abort();
         }
         return {
           id: correlationId,
@@ -4317,10 +4334,9 @@ export class WsRpcAdapter {
 
       case "set_model": {
         const detachedSession = this.sessionRuntime.getDetachedSession();
-        const modelRegistry = detachedSession
-          ? detachedSession.modelRegistry
-          : ctx.modelRegistry;
-        const models = modelRegistry.getAvailable();
+        const models = detachedSession
+          ? detachedSession.modelRegistry.getAvailable()
+          : this.context.state.getAvailableModels();
         const model = models.find(
           m => m.provider === command.provider && m.id === command.modelId,
         );
@@ -4335,9 +4351,11 @@ export class WsRpcAdapter {
         }
         if (this.sessionRuntime.hasDetachedSelection()) {
           const session = await this.sessionRuntime.ensureDetachedSession();
-          await session.setModel(model);
+          await session.setModel(
+            model as unknown as Parameters<typeof session.setModel>[0],
+          );
         } else {
-          await pi.setModel(model);
+          await this.context.actions.setModel(model);
         }
         return {
           id: correlationId,
@@ -4350,10 +4368,9 @@ export class WsRpcAdapter {
 
       case "get_available_models": {
         const detachedSession = this.sessionRuntime.getDetachedSession();
-        const modelRegistry = detachedSession
-          ? detachedSession.modelRegistry
-          : ctx.modelRegistry;
-        const models = modelRegistry.getAvailable();
+        const models = detachedSession
+          ? detachedSession.modelRegistry.getAvailable()
+          : this.context.state.getAvailableModels();
         return {
           id: correlationId,
           type: "response",
@@ -4381,9 +4398,9 @@ export class WsRpcAdapter {
       case "set_thinking_level": {
         if (this.sessionRuntime.hasDetachedSelection()) {
           const session = await this.sessionRuntime.ensureDetachedSession();
-          session.setThinkingLevel(command.level as PiThinkingLevel);
+          session.setThinkingLevel(command.level);
         } else {
-          pi.setThinkingLevel(command.level as PiThinkingLevel);
+          this.context.actions.setThinkingLevel(command.level);
         }
         return {
           id: correlationId,
@@ -4751,7 +4768,7 @@ export class WsRpcAdapter {
             error: "Session name cannot be empty",
           };
         }
-        pi.setSessionName(name);
+        this.context.actions.setSessionName(name);
         return {
           id: correlationId,
           type: "response",
@@ -4807,7 +4824,7 @@ export class WsRpcAdapter {
       case "fork": {
         const currentSessionFile =
           this.sessionRuntime.currentTranscriptSessionPath() ??
-          ctx.sessionManager.getSessionFile();
+          this.context.state.sessionManager.getSessionFile();
         if (!currentSessionFile || !fs.existsSync(currentSessionFile)) {
           return {
             id: correlationId,
@@ -4908,7 +4925,7 @@ export class WsRpcAdapter {
        * ------------------------------------------------------------------ */
 
       case "get_commands": {
-        const commands = pi.getCommands();
+        const commands = this.context.actions.getCommands();
         const rpcCommands: RpcSlashCommand[] = commands.map(cmd => ({
           name: cmd.name,
           description: cmd.description,
@@ -5059,9 +5076,15 @@ export class WsRpcAdapter {
             );
           }
 
-          appendSessionManagerWorkspace(ctx.sessionManager, ctx.cwd);
+          appendSessionManagerWorkspace(
+            this.context.state.sessionManager,
+            this.context.state.cwd,
+          );
           for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) {
-            appendSessionManagerWorkspace(sessionManager, ctx.cwd);
+            appendSessionManagerWorkspace(
+              sessionManager,
+              this.context.state.cwd,
+            );
           }
 
           return {
@@ -5107,7 +5130,8 @@ export class WsRpcAdapter {
         try {
           const sessions: WorkspaceSessionEntry[] = [];
           const seenSessionPaths = new Set<string>();
-          const liveSessionFile = ctx.sessionManager.getSessionFile();
+          const liveSessionFile =
+            this.context.state.sessionManager.getSessionFile();
           const cursor = decodeSessionCursor(command.cursor);
           const limit =
             typeof command.limit === "number" && command.limit > 0
@@ -5145,7 +5169,7 @@ export class WsRpcAdapter {
               path: sessionPath,
               isRunning:
                 sessionPath === liveSessionFile
-                  ? !ctx.isIdle()
+                  ? !this.context.state.isIdle()
                   : this.sessionRuntime.isSessionRunning(sessionPath),
               timestamp: normalizeSessionTimestamp(header.timestamp),
               updatedAt: normalizeSessionTimestamp(header.timestamp),
@@ -5158,19 +5182,23 @@ export class WsRpcAdapter {
               readWorkspaceSessionSummary(
                 sessionPath,
                 sessionPath === liveSessionFile
-                  ? !ctx.isIdle()
+                  ? !this.context.state.isIdle()
                   : this.sessionRuntime.isSessionRunning(sessionPath),
               ),
             );
           }
 
           if (command.includeActive !== false) {
-            appendSessionManager(ctx.sessionManager, liveSessionFile, ctx.cwd);
+            appendSessionManager(
+              this.context.state.sessionManager,
+              liveSessionFile,
+              this.context.state.cwd,
+            );
             for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) {
               appendSessionManager(
                 sessionManager,
                 sessionManager.getSessionFile(),
-                ctx.cwd,
+                this.context.state.cwd,
               );
             }
           }
@@ -5234,12 +5262,14 @@ export class WsRpcAdapter {
           const requestedSessionPath = command.sessionPath;
           const liveSessionPath =
             this.sessionRuntime.currentTranscriptSessionPath() ??
-            ctx.sessionManager.getSessionFile();
+            this.context.state.sessionManager.getSessionFile();
           const sessionPath = requestedSessionPath ?? liveSessionPath;
           const entries =
             sessionPath && fs.existsSync(sessionPath)
               ? buildTreeEntriesForSessionPath(sessionPath)
-              : buildTreeEntriesFromBranch(ctx.sessionManager.getBranch());
+              : buildTreeEntriesFromBranch(
+                  this.context.state.sessionManager.getBranch(),
+                );
           return {
             id: correlationId,
             type: "response" as const,

@@ -6,13 +6,13 @@
  * Read-only: handleInput handles only bridge-exit shortcuts.
  */
 
-import { getLanIps, isTailscaleIp } from "./network.js";
+import { getLanIps, isTailscaleIp } from "@pi-web/bridge/network";
 import type {
   BridgeConfig,
   BridgeEvent,
   BridgeState,
   WsClient,
-} from "./types.js";
+} from "@pi-web/bridge/types";
 
 interface LogEntry {
   timestamp: Date;

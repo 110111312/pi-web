@@ -3,10 +3,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { createAgentSessionMock } = vi.hoisted(() => ({
@@ -89,61 +85,45 @@ const createMockContext = (): WsRpcAdapterContext => {
     maxTokens: 8192,
   };
 
-  const pi = {
-    sendUserMessage: vi.fn(),
-    setModel: vi.fn().mockResolvedValue(true),
-    setThinkingLevel: vi.fn(),
-    getThinkingLevel: vi.fn().mockReturnValue("medium"),
-    setSessionName: vi.fn(),
-    getSessionName: vi.fn().mockReturnValue("test-session"),
-    getCommands: vi
-      .fn()
-      .mockReturnValue([
-        { name: "test", description: "Test command", source: "extension" },
-      ]),
-    on: vi.fn(),
-  } as unknown as ExtensionAPI;
+  const events = {
+    subscribe: vi.fn().mockReturnValue(vi.fn()),
+  };
 
-  const ctx = {
-    sessionManager,
-    model,
-    modelRegistry: {
-      getAvailable: vi.fn().mockReturnValue([
-        model,
-        {
-          ...model,
-          id: "claude",
-          name: "Claude",
-          provider: "anthropic",
-          api: "anthropic-messages",
-          reasoning: false,
-        },
-      ]),
-    } as unknown as ExtensionCommandContext["modelRegistry"],
+  const state = {
+    sessionManager: sessionManager as unknown as SessionManager,
+    cwd: "/test/project",
     isIdle: vi.fn().mockReturnValue(true),
-    signal: undefined,
-    abort: vi.fn(),
-    compact: vi.fn(),
-    shutdown: vi.fn(),
     hasPendingMessages: vi.fn().mockReturnValue(false),
+    getAvailableModels: vi.fn().mockReturnValue([
+      model,
+      {
+        ...model,
+        id: "claude",
+        name: "Claude",
+        provider: "anthropic",
+        api: "anthropic-messages",
+        reasoning: false,
+      },
+    ]),
+    getCurrentModel: vi.fn().mockReturnValue(model),
+    getThinkingLevel: vi.fn().mockReturnValue("medium"),
     getContextUsage: vi
       .fn()
       .mockReturnValue({ tokens: 1000, contextWindow: 8000, percent: 12.5 }),
-    getSystemPrompt: vi.fn().mockReturnValue("You are a helpful assistant."),
-    cwd: "/test/project",
-    ui: {
-      custom: vi.fn(),
-    },
-    hasUI: true,
-    waitForIdle: vi.fn().mockResolvedValue(undefined),
-    newSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    fork: vi.fn().mockResolvedValue({ cancelled: false }),
-    navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
-    switchSession: vi.fn().mockResolvedValue({ cancelled: false }),
-    reload: vi.fn().mockResolvedValue(undefined),
-  } as unknown as ExtensionCommandContext;
+  };
 
-  return { pi, ctx };
+  const actions = {
+    sendUserMessage: vi.fn(),
+    abort: vi.fn(),
+    setModel: vi.fn().mockResolvedValue(undefined),
+    setThinkingLevel: vi.fn(),
+    setSessionName: vi.fn(),
+    getCommands: vi
+      .fn()
+      .mockReturnValue([{ name: "test", description: "Test command" }]),
+  };
+
+  return { events, state, actions };
 };
 
 describe("WsRpcAdapter", () => {
@@ -195,7 +175,7 @@ describe("WsRpcAdapter", () => {
         }),
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       const promptSpy = vi.fn().mockResolvedValue(undefined);
@@ -233,7 +213,7 @@ describe("WsRpcAdapter", () => {
       await new Promise(r => setTimeout(r, 30));
 
       // Should NOT call pi.sendUserMessage (that would trigger TUI switch)
-      expect(context.pi.sendUserMessage).not.toHaveBeenCalled();
+      expect(context.actions.sendUserMessage).not.toHaveBeenCalled();
       expect(emitEvent).toHaveBeenCalledWith({
         type: "command_received",
         client,
@@ -324,7 +304,7 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 20));
 
-      expect(context.pi.sendUserMessage).not.toHaveBeenCalled();
+      expect(context.actions.sendUserMessage).not.toHaveBeenCalled();
       expect(promptSpy).toHaveBeenCalledWith("Inspect this image", {
         source: "rpc",
         images: [
@@ -418,7 +398,7 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 20));
 
-      expect(context.pi.sendUserMessage).not.toHaveBeenCalled();
+      expect(context.actions.sendUserMessage).not.toHaveBeenCalled();
       expect(createAgentSessionMock).toHaveBeenCalledTimes(1);
       expect(promptSpy).toHaveBeenCalledWith("Continue here", {
         source: "rpc",
@@ -595,9 +575,12 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      expect(context.pi.sendUserMessage).toHaveBeenCalledWith("Steer message", {
-        deliverAs: "steer",
-      });
+      expect(context.actions.sendUserMessage).toHaveBeenCalledWith(
+        "Steer message",
+        {
+          deliverAs: "steer",
+        },
+      );
     });
 
     it("should handle follow_up command", async () => {
@@ -615,9 +598,12 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      expect(context.pi.sendUserMessage).toHaveBeenCalledWith("Follow up", {
-        deliverAs: "followUp",
-      });
+      expect(context.actions.sendUserMessage).toHaveBeenCalledWith(
+        "Follow up",
+        {
+          deliverAs: "followUp",
+        },
+      );
     });
 
     it("should handle abort command", async () => {
@@ -631,7 +617,7 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      expect(context.ctx.abort).toHaveBeenCalled();
+      expect(context.actions.abort).toHaveBeenCalled();
     });
 
     it("should handle get_state command", async () => {
@@ -689,9 +675,9 @@ describe("WsRpcAdapter", () => {
       runGit(tmpDir, ["branch", "feature"]);
 
       (
-        context.ctx.sessionManager.getCwd as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
       ).mockReturnValue(tmpDir);
-      context.ctx.cwd = tmpDir;
+      context.state.cwd = tmpDir;
 
       const command: RpcCommand = {
         id: "cmd-git-list",
@@ -753,9 +739,9 @@ describe("WsRpcAdapter", () => {
       runGit(tmpDir, ["branch", "feature"]);
 
       (
-        context.ctx.sessionManager.getCwd as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
       ).mockReturnValue(tmpDir);
-      context.ctx.cwd = tmpDir;
+      context.state.cwd = tmpDir;
 
       const command: RpcCommand = {
         id: "cmd-git-switch",
@@ -813,9 +799,9 @@ describe("WsRpcAdapter", () => {
       runGit(tmpDir, ["branch", "-M", "main"]);
 
       (
-        context.ctx.sessionManager.getCwd as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
       ).mockReturnValue(tmpDir);
-      context.ctx.cwd = tmpDir;
+      context.state.cwd = tmpDir;
 
       const command: RpcCommand = {
         id: "cmd-git-create",
@@ -914,10 +900,10 @@ describe("WsRpcAdapter", () => {
       }
 
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockImplementation(() => sessionManager.getBranch());
 
       const command: RpcCommand = {
@@ -983,10 +969,10 @@ describe("WsRpcAdapter", () => {
       }
 
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockImplementation(() => sessionManager.getBranch());
 
       const command: RpcCommand = {
@@ -1027,10 +1013,10 @@ describe("WsRpcAdapter", () => {
       }
 
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockImplementation(() => sessionManager.getBranch());
 
       const command: RpcCommand = {
@@ -1093,8 +1079,8 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      expect(context.ctx.modelRegistry.getAvailable).toHaveBeenCalled();
-      expect(context.pi.setModel).toHaveBeenCalled();
+      expect(context.state.getAvailableModels).toHaveBeenCalled();
+      expect(context.actions.setModel).toHaveBeenCalled();
 
       const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
       const lastCall = sendCalls[sendCalls.length - 1][0] as string;
@@ -1162,7 +1148,7 @@ describe("WsRpcAdapter", () => {
         }),
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       createAgentSessionMock.mockRejectedValue(new Error("Dispatch failed"));
@@ -1400,17 +1386,17 @@ describe("WsRpcAdapter", () => {
     it("routes live transcript updates and pushed session stats directly to the client", async () => {
       (ws.send as ReturnType<typeof vi.fn>).mockClear();
 
-      const messageStartHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "message_start")?.[1];
-      const messageUpdateHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "message_update")?.[1];
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
 
-      messageStartHandler?.({
+      handler?.({
+        type: "message_start",
         message: { role: "assistant", content: "Hi" },
       });
-      messageUpdateHandler?.({
+      handler?.({
+        type: "message_update",
         message: {
           id: "assistant-1",
           role: "assistant",
@@ -1471,11 +1457,12 @@ describe("WsRpcAdapter", () => {
     it("shapes agent_start events explicitly", () => {
       (ws.send as ReturnType<typeof vi.fn>).mockClear();
 
-      const agentStartHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "agent_start")?.[1];
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
 
-      agentStartHandler?.({ type: "agent_start", leaked: true });
+      handler?.({ type: "agent_start", leaked: true });
 
       const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
         call => JSON.parse(call[0] as string),
@@ -1491,11 +1478,12 @@ describe("WsRpcAdapter", () => {
     it("pushes shaped agent_end events and session stats", async () => {
       (ws.send as ReturnType<typeof vi.fn>).mockClear();
 
-      const agentEndHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "agent_end")?.[1];
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
 
-      agentEndHandler?.({
+      handler?.({
         type: "agent_end",
         leaked: true,
         messages: [
@@ -1574,11 +1562,12 @@ describe("WsRpcAdapter", () => {
     it("shapes model_select events explicitly", async () => {
       (ws.send as ReturnType<typeof vi.fn>).mockClear();
 
-      const modelSelectHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "model_select")?.[1];
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
 
-      modelSelectHandler?.({
+      handler?.({
         type: "model_select",
         model: {
           id: "gpt-5",
@@ -1762,19 +1751,20 @@ describe("WsRpcAdapter", () => {
         throw new Error("session file was not created");
       }
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockImplementation(() => sessionManager.getBranch());
 
       (ws.send as ReturnType<typeof vi.fn>).mockClear();
 
-      const compactionEndHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "session_compact")?.[1];
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
 
-      compactionEndHandler?.({
+      handler?.({
         type: "session_compact",
         compactionEntry: sessionManager.getBranch().at(-1),
         fromExtension: false,
@@ -1910,7 +1900,7 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(currentSessionFile);
       vi.mocked(SessionManager.listAll).mockResolvedValue([
         {
@@ -2004,7 +1994,7 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(emptySessionFile);
 
       const command: RpcCommand = {
@@ -2081,7 +2071,7 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       const command: RpcCommand = {
@@ -2183,19 +2173,19 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
 
-      context.ctx.cwd = workspaceA;
+      context.state.cwd = workspaceA;
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(liveSessionFile);
       (
-        context.ctx.sessionManager.getHeader as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getHeader as ReturnType<typeof vi.fn>
       ).mockReturnValue({
         id: "live-id",
         timestamp: "2025-01-02T00:00:00Z",
         cwd: workspaceA,
       });
       (
-        context.ctx.sessionManager.getCwd as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
       ).mockReturnValue(workspaceA);
 
       const command: RpcCommand = {
@@ -2293,7 +2283,7 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(liveSessionFile);
       vi.mocked(SessionManager.listAll).mockResolvedValue([
         {
@@ -2383,7 +2373,7 @@ describe("WsRpcAdapter", () => {
         ].join("\n") + "\n",
       );
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(liveSessionFile);
       vi.mocked(SessionManager.listAll).mockResolvedValue([
         {
@@ -2508,7 +2498,7 @@ describe("WsRpcAdapter", () => {
 
     it("should handle list_sessions when no session file is available", async () => {
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(undefined);
 
       const command: RpcCommand = {
@@ -2540,7 +2530,7 @@ describe("WsRpcAdapter", () => {
       const workspaceDir = path.join(workspaceRoot, "example");
       fs.mkdirSync(workspaceDir);
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(undefined);
 
       const registerCommand: RpcCommand = {
@@ -2606,7 +2596,7 @@ describe("WsRpcAdapter", () => {
       const workspaceDir = path.join(workspaceRoot, "demo-project");
       fs.mkdirSync(workspaceDir);
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(undefined);
 
       const registerCommand: RpcCommand = {
@@ -2672,7 +2662,7 @@ describe("WsRpcAdapter", () => {
         path.join(tmpDir, "src", "components", "ComposerBar.vue"),
         "<template />\n",
       );
-      context.ctx.cwd = os.tmpdir();
+      context.state.cwd = os.tmpdir();
 
       const command: RpcCommand = {
         id: "cmd-workspace",
@@ -2729,7 +2719,7 @@ describe("WsRpcAdapter", () => {
         linkDir,
         process.platform === "win32" ? "junction" : "dir",
       );
-      context.ctx.cwd = os.tmpdir();
+      context.state.cwd = os.tmpdir();
 
       const command: RpcCommand = {
         id: "cmd-workspace-symlink",
@@ -2800,7 +2790,7 @@ describe("WsRpcAdapter", () => {
         };
       };
 
-      context.ctx.cwd = os.tmpdir();
+      context.state.cwd = os.tmpdir();
       const firstResponse = await listEntries("cmd-workspace-a", workspaceA);
       expect(firstResponse.payload.data.entries).toEqual(
         expect.arrayContaining([{ path: "alpha.txt", kind: "file" }]),
@@ -2837,7 +2827,7 @@ describe("WsRpcAdapter", () => {
       const filePath = path.join(tmpDir, "src", "App.vue");
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, "<template>\n  <main />\n</template>\n");
-      context.ctx.cwd = os.tmpdir();
+      context.state.cwd = os.tmpdir();
 
       const command: RpcCommand = {
         id: "cmd-read-file",
@@ -2881,7 +2871,7 @@ describe("WsRpcAdapter", () => {
       );
       const outsideFile = path.join(outsideDir, "outside.txt");
       fs.writeFileSync(outsideFile, "outside\n");
-      context.ctx.cwd = os.tmpdir();
+      context.state.cwd = os.tmpdir();
 
       const command: RpcCommand = {
         id: "cmd-read-file-outside",
@@ -2912,7 +2902,7 @@ describe("WsRpcAdapter", () => {
 
     it("should handle list_tree_entries command", async () => {
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockReturnValue([
         {
           id: "entry-1",
@@ -2987,7 +2977,7 @@ describe("WsRpcAdapter", () => {
         throw new Error("session file was not created");
       }
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       const command: RpcCommand = { id: "cmd-1", type: "list_tree_entries" };
@@ -3085,7 +3075,7 @@ describe("WsRpcAdapter", () => {
         throw new Error("session file was not created");
       }
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       const command: RpcCommand = { id: "cmd-1", type: "list_tree_entries" };
@@ -3122,7 +3112,7 @@ describe("WsRpcAdapter", () => {
 
     it("should handle list_tree_entries with empty branch", async () => {
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockReturnValue([]);
 
       const command: RpcCommand = { id: "cmd-1", type: "list_tree_entries" };
@@ -3145,7 +3135,7 @@ describe("WsRpcAdapter", () => {
 
     it("should filter entries without id in list_tree_entries", async () => {
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockReturnValue([
         { id: "entry-1", role: "user" },
         { role: "orphan", type: "message" }, // no id
@@ -3173,7 +3163,7 @@ describe("WsRpcAdapter", () => {
     it("should return empty sessions when scanning fails", async () => {
       // Force an error in session scanning by making getSessionFile throw
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockImplementation(() => {
         throw new Error("session file unavailable");
       });
@@ -3202,7 +3192,7 @@ describe("WsRpcAdapter", () => {
 
     it("should return empty entries when getBranch throws", async () => {
       (
-        context.ctx.sessionManager.getBranch as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>
       ).mockImplementation(() => {
         throw new Error("Branch error");
       });
@@ -3331,7 +3321,7 @@ describe("WsRpcAdapter", () => {
 
       await new Promise(r => setTimeout(r, 10));
 
-      expect(context.pi.setSessionName).toHaveBeenCalledWith(
+      expect(context.actions.setSessionName).toHaveBeenCalledWith(
         "New Session Name",
       );
 
@@ -3366,7 +3356,7 @@ describe("WsRpcAdapter", () => {
       const sm = SessionManager.create(tmpDir, tmpDir);
       const existingFile = sm.getSessionFile()!;
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(existingFile);
 
       const command: RpcCommand = { id: "cmd-1", type: "new_session" };
@@ -3380,7 +3370,6 @@ describe("WsRpcAdapter", () => {
       await new Promise(r => setTimeout(r, 10));
 
       // ctx.newSession should NOT be called (bridge creates session locally)
-      expect(context.ctx.newSession).not.toHaveBeenCalled();
       // createAgentSession should NOT be called eagerly
       expect(createAgentSessionMock).not.toHaveBeenCalled();
 
@@ -3442,7 +3431,7 @@ describe("WsRpcAdapter", () => {
       const leafId = sm.getLeafId() as string;
       const existingFile = sm.getSessionFile() as string;
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(existingFile);
 
       const command: RpcCommand = {
@@ -3460,7 +3449,6 @@ describe("WsRpcAdapter", () => {
       await new Promise(r => setTimeout(r, 10));
 
       // ctx.fork should NOT be called (bridge creates fork locally)
-      expect(context.ctx.fork).not.toHaveBeenCalled();
 
       const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
       const lastCall = JSON.parse(sendCalls[sendCalls.length - 1][0] as string);
@@ -3500,7 +3488,7 @@ describe("WsRpcAdapter", () => {
       );
 
       (
-        context.ctx.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(sessionFile);
 
       const navigateTreeSpy = vi.fn().mockImplementation(async targetId => {
@@ -3545,7 +3533,6 @@ describe("WsRpcAdapter", () => {
         replaceInstructions: undefined,
         label: undefined,
       });
-      expect(context.ctx.navigateTree).not.toHaveBeenCalled();
 
       const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
         call => JSON.parse(call[0] as string),
@@ -4317,10 +4304,12 @@ describe("WsRpcAdapter", () => {
         },
       });
 
-      const messageStartHandler = (
-        context.pi.on as ReturnType<typeof vi.fn>
-      ).mock.calls.find(call => call[0] === "message_start")?.[1];
-      messageStartHandler?.({
+      const handler = (context.events.subscribe as ReturnType<typeof vi.fn>)
+        .mock.calls[0]?.[0] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
+      handler?.({
+        type: "message_start",
         message: { role: "assistant", content: "Live before switch" },
       });
 

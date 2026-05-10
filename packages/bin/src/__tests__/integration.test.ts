@@ -16,7 +16,7 @@ const { createAgentSessionMock } = vi.hoisted(() => ({
   createAgentSessionMock: vi.fn(),
 }));
 
-vi.mock("../detached-session.js", () => ({
+vi.mock("@pi-web/bridge/detached-session", () => ({
   createDetachedAgentSession: createAgentSessionMock,
 }));
 
@@ -24,10 +24,15 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "@pi-web/bridge/types";
+import type { WsRpcAdapterContext } from "@pi-web/bridge/ws-rpc-adapter";
 import { startBridge, type BridgeController } from "../lifecycle.js";
+import {
+  createBridgeSessionActions,
+  createBridgeSessionEvents,
+  createBridgeSessionState,
+} from "../pi-live-session.js";
 import { createBridgeTerminalView } from "../terminal-log-view.js";
-import { DEFAULT_BRIDGE_CONFIG, type BridgeEvent } from "../types.js";
-import type { WsRpcAdapterContext } from "../ws-rpc-adapter.js";
 
 // Test timeout for async operations
 const TEST_TIMEOUT = 10000;
@@ -124,7 +129,11 @@ describe("Bridge Integration", () => {
       reload: vi.fn().mockResolvedValue(undefined),
     } as unknown as ExtensionCommandContext;
 
-    return { pi, ctx };
+    return {
+      events: createBridgeSessionEvents(pi),
+      state: createBridgeSessionState(ctx, pi),
+      actions: createBridgeSessionActions(pi, ctx),
+    };
   };
 
   // Store original SIGINT listeners
@@ -408,11 +417,11 @@ describe("Bridge Integration", () => {
           }),
         );
         (
-          mockContext.ctx.sessionManager.getSessionFile as ReturnType<
+          mockContext.state.sessionManager.getSessionFile as ReturnType<
             typeof vi.fn
           >
         ).mockReturnValue(sessionFile);
-        (mockContext.ctx as unknown as Record<string, unknown>).cwd = tmpDir;
+        (mockContext.state as unknown as Record<string, unknown>).cwd = tmpDir;
 
         // Mock createAgentSession for the auto-created session
         const promptSpy = vi.fn().mockResolvedValue(undefined);
@@ -496,7 +505,7 @@ describe("Bridge Integration", () => {
         ).toBeDefined();
 
         // sendUserMessage should NOT be called (that would trigger TUI switch)
-        expect(mockContext.pi.sendUserMessage).not.toHaveBeenCalled();
+        expect(mockContext.actions.sendUserMessage).not.toHaveBeenCalled();
 
         ws.close();
         fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -868,18 +877,18 @@ describe("Bridge Integration", () => {
           }
         });
 
-        // Get the Pi event handler for agent_start
-        const agentStartCall = (
-          mockContext.pi.on as ReturnType<typeof vi.fn>
-        ).mock.calls.find((call: unknown[]) => call[0] === "agent_start");
-        const agentStartHandler = agentStartCall?.[1] as
+        // Get the Pi event handler from subscribe
+        const subscribeCalls = (
+          mockContext.events.subscribe as ReturnType<typeof vi.fn>
+        ).mock.calls;
+        const eventHandler = subscribeCalls[subscribeCalls.length - 1]?.[0] as
           | ((event: object) => void)
           | undefined;
 
-        expect(agentStartHandler).toBeDefined();
+        expect(eventHandler).toBeDefined();
 
         // Trigger a Pi event through the handler
-        agentStartHandler?.({ type: "agent_start", sessionId: "test-session" });
+        eventHandler?.({ type: "agent_start", sessionId: "test-session" });
 
         // Wait for event delivery
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -927,17 +936,17 @@ describe("Bridge Integration", () => {
         expect(controller!.getClients()).toHaveLength(0);
 
         // Trigger event — should not throw since client is unregistered
-        const agentStartCall = (
-          mockContext.pi.on as ReturnType<typeof vi.fn>
-        ).mock.calls.find((call: unknown[]) => call[0] === "agent_start");
-        const agentStartHandler = agentStartCall?.[1] as
+        const subscribeCalls = (
+          mockContext.events.subscribe as ReturnType<typeof vi.fn>
+        ).mock.calls;
+        const eventHandler = subscribeCalls[subscribeCalls.length - 1]?.[0] as
           | ((event: object) => void)
           | undefined;
-        expect(agentStartHandler).toBeDefined();
+        expect(eventHandler).toBeDefined();
 
         // Should not throw — just no-op since client is unregistered
         expect(() => {
-          agentStartHandler?.({ type: "agent_start" });
+          eventHandler?.({ type: "agent_start" });
         }).not.toThrow();
       },
       TEST_TIMEOUT,

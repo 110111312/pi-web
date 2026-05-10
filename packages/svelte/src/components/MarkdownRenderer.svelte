@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Comark } from "@comark/svelte";
+  import type { RenderOptions } from "beautiful-mermaid";
   import DOMPurify from "dompurify";
   import { onMount, tick } from "svelte";
   import { highlightCodeHtml, readThemeMode } from "../utils/codeHighlight";
@@ -17,7 +18,7 @@
     onOpenFileReference?: (payload: { path: string; lineNumber: number }) => void;
   } = $props();
 
-  type MermaidModule = typeof import("beautiful-mermaid").default;
+  type MermaidRenderer = typeof import("beautiful-mermaid").renderMermaidSVG;
 
   const COMARK_OPTIONS = { html: false };
   const MERMAID_MIN_WIDTH = 420;
@@ -26,7 +27,7 @@
   const MERMAID_MAX_ZOOM = 2.5;
   const MERMAID_ZOOM_STEP = 0.25;
 
-  let mermaidPromise: Promise<MermaidModule> | null = null;
+  let mermaidPromise: Promise<MermaidRenderer> | null = null;
   let renderVersion = 0;
   let codeRenderVersion = 0;
   let themeObserver: MutationObserver | undefined;
@@ -48,8 +49,8 @@
     return "";
   }
 
-  function loadMermaid(): Promise<MermaidModule> {
-    mermaidPromise ??= import("beautiful-mermaid").then(m => m.default);
+  function loadMermaid(): Promise<MermaidRenderer> {
+    mermaidPromise ??= import("beautiful-mermaid").then(m => m.renderMermaidSVG);
     return mermaidPromise;
   }
 
@@ -57,28 +58,18 @@
     return styles.getPropertyValue(name).trim() || fallback;
   }
 
-  function configureMermaid(mermaid: MermaidModule) {
+  function getMermaidOptions(): RenderOptions {
     const shell = document.querySelector<HTMLElement>(".app-shell");
     const styles = getComputedStyle(shell ?? document.documentElement);
     const isDark = readThemeMode() !== "light";
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: "base",
-      htmlLabels: false,
-      flowchart: { htmlLabels: false },
-      themeVariables: {
-        darkMode: isDark,
-        background: cssVar(styles, "--panel", isDark ? "#161b22" : "#ffffff"),
-        mainBkg: cssVar(styles, "--panel-2", isDark ? "#21262d" : "#f6f8fa"),
-        primaryColor: cssVar(styles, "--panel-2", isDark ? "#21262d" : "#f6f8fa"),
-        primaryTextColor: cssVar(styles, "--text", isDark ? "#e6edf3" : "#1f2328"),
-        primaryBorderColor: cssVar(styles, "--border-strong", isDark ? "#484f58" : "#afb8c1"),
-        lineColor: cssVar(styles, "--text-subtle", isDark ? "#7d8590" : "#6e7781"),
-        textColor: cssVar(styles, "--text", isDark ? "#e6edf3" : "#1f2328"),
-        fontFamily: cssVar(styles, "--pi-font-sans", "system-ui, sans-serif"),
-      },
-    });
+    return {
+      bg: cssVar(styles, "--panel", isDark ? "#161b22" : "#ffffff"),
+      fg: cssVar(styles, "--text", isDark ? "#e6edf3" : "#1f2328"),
+      line: cssVar(styles, "--text-subtle", isDark ? "#7d8590" : "#6e7781"),
+      surface: cssVar(styles, "--panel-2", isDark ? "#21262d" : "#f6f8fa"),
+      border: cssVar(styles, "--border-strong", isDark ? "#484f58" : "#afb8c1"),
+      font: cssVar(styles, "--pi-font-sans", "system-ui, sans-serif"),
+    };
   }
 
   function sanitizeMermaidSvg(svg: string): string {
@@ -337,11 +328,11 @@
       return;
     }
 
-    const mermaid = await loadMermaid();
+    const renderMermaid = await loadMermaid();
     if (version !== renderVersion) return;
-    configureMermaid(mermaid);
 
     const themeMode = readThemeMode();
+    const options = getMermaidOptions();
     let index = 0;
     for (const block of blocks) {
       const source = block.dataset.mermaidSource ?? "";
@@ -354,9 +345,9 @@
         continue;
       }
       try {
-        const result = await mermaid.render(`markdown-mermaid-${rendererId}-${version}-${index}`, source);
+        const svg = renderMermaid(source, options);
         if (version !== renderVersion) return;
-        block.innerHTML = sanitizeMermaidSvg(result.svg);
+        block.innerHTML = sanitizeMermaidSvg(svg);
         wrapMermaidDiagram(block);
         fitMermaidSvg(block);
         addMermaidZoomControls(block);
@@ -364,7 +355,6 @@
         block.dataset.mermaidThemeMode = themeMode;
         block.classList.add("mermaid-block-rendered");
         block.classList.remove("mermaid-block-error");
-        result.bindFunctions?.(block);
       } catch (error) {
         if (version !== renderVersion) return;
         showMermaidError(block, source, error);

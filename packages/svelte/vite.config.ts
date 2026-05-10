@@ -28,9 +28,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Group mermaid + cytoscape + katex together since they're always co-loaded
+          // Group beautiful-mermaid + cytoscape + katex together since they're always co-loaded
           if (
-            id.includes("node_modules/mermaid") ||
+            id.includes("node_modules/beautiful-mermaid") ||
             id.includes("node_modules/cytoscape") ||
             id.includes("node_modules/katex")
           ) {

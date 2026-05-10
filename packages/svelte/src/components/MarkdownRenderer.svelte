@@ -17,7 +17,7 @@
     onOpenFileReference?: (payload: { path: string; lineNumber: number }) => void;
   } = $props();
 
-  type MermaidModule = typeof import("mermaid").default;
+  type MermaidModule = typeof import("beautiful-mermaid").default;
 
   const COMARK_OPTIONS = { html: false };
   const MERMAID_MIN_WIDTH = 420;
@@ -49,7 +49,7 @@
   }
 
   function loadMermaid(): Promise<MermaidModule> {
-    mermaidPromise ??= import("mermaid").then(m => m.default);
+    mermaidPromise ??= import("beautiful-mermaid").then(m => m.default);
     return mermaidPromise;
   }
 

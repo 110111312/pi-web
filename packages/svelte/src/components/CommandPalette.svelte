@@ -4,11 +4,13 @@
   let {
     commands = [] as SlashCommandOption[],
     filter = "",
+    isDebugMode = false,
     onSelect = (_: string) => {},
     onClose = () => {},
   }: {
     commands: SlashCommandOption[];
     filter: string;
+    isDebugMode?: boolean;
     onSelect?: (commandName: string) => void;
     onClose?: () => void;
   } = $props();
@@ -74,6 +76,9 @@
 
 {#if filtered.length > 0}
   <div class="command-palette">
+    {#if isDebugMode}
+      <div class="command-hint">Debug session commands run locally in memory.</div>
+    {/if}
     <ul bind:this={listRef} class="command-list">
       {#each filtered as cmd, idx (cmd.name)}
         <li
@@ -99,7 +104,12 @@
   </div>
 {:else}
   <div class="command-palette empty">
-    <span class="empty-text">No matching commands</span>
+    <span class="empty-text">
+      {isDebugMode ? "No matching debug commands" : "No matching commands"}
+    </span>
+    {#if isDebugMode}
+      <span class="empty-hint">Try `/fixture mixed`, `/fixture edit`, or `/tps 12`.</span>
+    {/if}
   </div>
 {/if}
 
@@ -128,6 +138,12 @@
     align-items: center;
     justify-content: center;
     padding: 12px;
+  }
+
+  .command-hint {
+    padding: 10px 12px 0;
+    font-size: 0.72rem;
+    color: var(--text-subtle);
   }
 
   .command-list {
@@ -188,6 +204,12 @@
 
   .empty-text {
     font-size: 0.76rem;
+    color: var(--text-subtle);
+  }
+
+  .empty-hint {
+    margin-top: 4px;
+    font-size: 0.72rem;
     color: var(--text-subtle);
   }
 </style>

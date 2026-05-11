@@ -70,6 +70,7 @@ export interface ChatTranscriptScrollState {
     scrollTop: number;
     scrollHeight: number;
   } | null;
+  pendingRenderSnapshot: SessionScrollSnapshot | null;
   pendingSessionRestore: PendingSessionRestore | null;
   sessionScrollSnapshots: Map<string, SessionScrollSnapshot>;
 
@@ -77,6 +78,7 @@ export interface ChatTranscriptScrollState {
   captureScrollSnapshot(
     container: HTMLElement | null,
   ): SessionScrollSnapshot | null;
+  prepareForRender(container: HTMLElement | null): void;
   rememberSessionScroll(
     container: HTMLElement | null,
     sessionPath: string | null,
@@ -125,6 +127,7 @@ export function createChatTranscriptScrollState(): ChatTranscriptScrollState {
     scrollTop: number;
     scrollHeight: number;
   } | null = null;
+  let pendingRenderSnapshot: SessionScrollSnapshot | null = null;
   let pendingSessionRestore: PendingSessionRestore | null = null;
   const sessionScrollSnapshots = new Map<string, SessionScrollSnapshot>();
 
@@ -156,6 +159,10 @@ export function createChatTranscriptScrollState(): ChatTranscriptScrollState {
     const snapshot = captureScrollSnapshot(container);
     if (!snapshot) return;
     sessionScrollSnapshots.set(sessionPath, snapshot);
+  }
+
+  function prepareForRender(container: HTMLElement | null) {
+    pendingRenderSnapshot = captureScrollSnapshot(container);
   }
 
   function preserveScroll(container: HTMLElement | null) {
@@ -259,13 +266,30 @@ export function createChatTranscriptScrollState(): ChatTranscriptScrollState {
       container.scrollTop = pendingHistoryAnchor.scrollTop + delta;
       shouldStickToBottom = isNearBottom(container);
       pendingHistoryAnchor = null;
+      pendingRenderSnapshot = null;
       return;
     }
-    if (tryRestorePendingSessionScroll(container, opts)) return;
+    if (tryRestorePendingSessionScroll(container, opts)) {
+      pendingRenderSnapshot = null;
+      return;
+    }
     if (wasDisconnected) {
       restoreScroll(container);
+      pendingRenderSnapshot = null;
       return;
     }
+    if (
+      container &&
+      pendingRenderSnapshot &&
+      !pendingRenderSnapshot.stickToBottom
+    ) {
+      if (!restoreSnapshotByAnchor(container, pendingRenderSnapshot)) {
+        restoreSnapshotByScrollTop(container, pendingRenderSnapshot);
+      }
+      pendingRenderSnapshot = null;
+      return;
+    }
+    pendingRenderSnapshot = null;
     if (shouldStickToBottom) scrollToBottom(container);
   }
 
@@ -368,6 +392,12 @@ export function createChatTranscriptScrollState(): ChatTranscriptScrollState {
     set pendingHistoryAnchor(v: typeof pendingHistoryAnchor) {
       pendingHistoryAnchor = v;
     },
+    get pendingRenderSnapshot() {
+      return pendingRenderSnapshot;
+    },
+    set pendingRenderSnapshot(v: typeof pendingRenderSnapshot) {
+      pendingRenderSnapshot = v;
+    },
     get pendingSessionRestore() {
       return pendingSessionRestore;
     },
@@ -378,6 +408,7 @@ export function createChatTranscriptScrollState(): ChatTranscriptScrollState {
       return sessionScrollSnapshots;
     },
     captureScrollSnapshot,
+    prepareForRender,
     rememberSessionScroll,
     preserveScroll,
     restoreScroll,

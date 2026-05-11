@@ -406,6 +406,13 @@
   });
 
   $effect(() => {
+    void [sessionPath, displayItems, hasOlder, initialLoading, pageLoading, showBusyIndicator];
+    return () => {
+      scroll.prepareForRender(container);
+    };
+  });
+
+  $effect(() => {
     if (!hasOlder || initialLoading || pageLoading) return;
     if (!container) return;
     if (container.scrollTop > 120) scroll.topLoadArmed = true;
@@ -789,6 +796,8 @@
     gap: 8px;
     background: transparent;
     scrollbar-width: none;
+    /* Use explicit scroll restoration instead of browser anchoring. */
+    overflow-anchor: none;
   }
 
   .chat-transcript::-webkit-scrollbar { display: none; }

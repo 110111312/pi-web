@@ -14,9 +14,11 @@ import {
 import type { RpcModelInfo } from "../utils/models";
 import {
   applySlashCommandCompletion,
+  debugSlashCommandOptions,
   getSlashCommandContext,
   mergeSlashCommandOptions,
   parseCompactSlashCommand,
+  slashCommandOptionsFromRpc,
 } from "../utils/slashCommands";
 import { getNextThinkingLevel } from "../utils/thinkingLevels";
 import type { ImageContentBlock } from "../utils/transcript";
@@ -34,6 +36,7 @@ import {
 export interface ComposerBarProps {
   readonly connectionStatus: ConnectionStatus;
   readonly isStreaming: boolean;
+  readonly isDebugMode: boolean;
   readonly commands: readonly RpcSlashCommand[];
   readonly workspaceEntries: readonly RpcWorkspaceEntry[];
   readonly workspaceEntriesLoading: boolean;
@@ -207,7 +210,15 @@ export function createComposerBarState(
   // ---- derived state (uses $rx for inputText/cursorOffset) ----
 
   let isDisabled = $derived(props.connectionStatus !== "connected");
-  let availableSlashCommands = $derived(mergeSlashCommandOptions([]));
+  let availableSlashCommands = $derived.by(() => {
+    const baseCommands = props.isDebugMode
+      ? debugSlashCommandOptions()
+      : slashCommandOptionsFromRpc(props.commands);
+    return mergeSlashCommandOptions(
+      baseCommands,
+      props.isDebugMode ? [] : undefined,
+    );
+  });
 
   let commandContext = $derived(
     getSlashCommandContext($rx.inputText, $rx.cursorOffset),

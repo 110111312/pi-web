@@ -1,3 +1,5 @@
+import type { RpcSlashCommand } from "@pi-web/bridge/types";
+
 export interface SlashCommandOption {
   name: string;
   description?: string;
@@ -16,13 +18,62 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandOption[] = [
   },
 ];
 
+const DEBUG_SLASH_COMMANDS: SlashCommandOption[] = [
+  {
+    name: "fixture",
+    description:
+      "Insert a local debug fixture like markdown, edit, bash, or mixed",
+  },
+  {
+    name: "tps",
+    description: "Set local debug streaming speed in tokens per second",
+  },
+  {
+    name: "assistant",
+    description:
+      "Append a synthetic assistant message without sending an LLM request",
+  },
+  {
+    name: "user",
+    description: "Append a synthetic user message to the debug transcript",
+  },
+  {
+    name: "json",
+    description: "Append raw transcript JSON or content block JSON",
+  },
+  {
+    name: "name",
+    description: "Rename the current in-memory debug session",
+  },
+  {
+    name: "clear",
+    description: "Reset the debug transcript back to its intro message",
+  },
+];
+
+export function slashCommandOptionsFromRpc(
+  commands: readonly Pick<RpcSlashCommand, "name" | "description">[],
+): SlashCommandOption[] {
+  return commands
+    .filter(command => typeof command.name === "string" && command.name.trim())
+    .map(command => ({
+      name: command.name,
+      description: command.description,
+    }));
+}
+
+export function debugSlashCommandOptions(): SlashCommandOption[] {
+  return DEBUG_SLASH_COMMANDS.map(command => ({ ...command }));
+}
+
 export function mergeSlashCommandOptions(
   commands: readonly SlashCommandOption[],
+  builtins: readonly SlashCommandOption[] = BUILTIN_SLASH_COMMANDS,
 ): SlashCommandOption[] {
   const merged = commands.map(command => ({ ...command }));
   const seen = new Set(merged.map(command => command.name.toLowerCase()));
 
-  for (const command of BUILTIN_SLASH_COMMANDS) {
+  for (const command of builtins) {
     const key = command.name.toLowerCase();
     if (seen.has(key)) continue;
     merged.push({ ...command });

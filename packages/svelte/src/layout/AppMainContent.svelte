@@ -235,6 +235,7 @@
   <ComposerBar
     {connectionStatus}
     {isStreaming}
+    {isDebugMode}
     {commands}
     {workspaceEntries}
     {workspaceEntriesLoading}
@@ -258,7 +259,7 @@
     {gitRepoState}
     {gitRepoLoading}
     {gitBranchSwitching}
-    gitActionsDisabled={connectionStatus !== "connected" || isStreaming || isCompacting}
+    gitActionsDisabled={isDebugMode || connectionStatus !== "connected" || isStreaming || isCompacting}
     {refreshGitRepoState}
     {switchGitBranch}
     {createGitBranch}

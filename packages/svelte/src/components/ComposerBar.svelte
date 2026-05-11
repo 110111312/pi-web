@@ -25,6 +25,7 @@
   let {
     connectionStatus = "disconnected" as ConnectionStatus,
     isStreaming = false,
+    isDebugMode = false,
     commands = [] as readonly RpcSlashCommand[],
     workspaceEntries = [] as readonly RpcWorkspaceEntry[],
     workspaceEntriesLoading = false,
@@ -54,6 +55,12 @@
     createGitBranch = (_: string) => Promise.resolve(null as RpcGitRepoState | null),
   } = $props();
 
+  let composerPlaceholder = $derived(
+    isDebugMode
+      ? "Use /fixture, /tps, /json, or type synthetic markdown"
+      : "Ask anything, or drop an image",
+  );
+
   // ---- DOM refs (must stay in .svelte for bind:this) ----
   let composerRootRef = $state<HTMLDivElement | null>(null);
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
@@ -70,6 +77,7 @@
     {
       get connectionStatus() { return connectionStatus; },
       get isStreaming() { return isStreaming; },
+      get isDebugMode() { return isDebugMode; },
       get commands() { return commands; },
       get workspaceEntries() { return workspaceEntries; },
       get workspaceEntriesLoading() { return workspaceEntriesLoading; },
@@ -196,6 +204,7 @@
         bind:this={commandPaletteRef}
         commands={composer.availableSlashCommands}
         filter={composer.commandContext?.query ?? ""}
+        isDebugMode={isDebugMode}
         onSelect={handleCommandSelect}
         onClose={composer.handleCommandClose}
       />
@@ -294,7 +303,7 @@
           class="prompt-input"
           rows="1"
           disabled={composer.isDisabled}
-          placeholder="Ask anything, or drop an image"
+          placeholder={composerPlaceholder}
           onkeydown={handleInputKeydown}
           oninput={handleInputInteraction}
           onkeyup={handleInputInteraction}
@@ -309,16 +318,18 @@
 
       <div class="composer-footer-row">
         <div class="composer-status-cluster">
-          <GitBranchDropdown
-            label={gitBranch}
-            repoState={gitRepoState}
-            loading={gitRepoLoading}
-            switching={gitBranchSwitching}
-            disabled={gitActionsDisabled}
-            refresh={refreshGitRepoState}
-            switchBranch={switchGitBranch}
-            createBranch={createGitBranch}
-          />
+          {#if !isDebugMode}
+            <GitBranchDropdown
+              label={gitBranch}
+              repoState={gitRepoState}
+              loading={gitRepoLoading}
+              switching={gitBranchSwitching}
+              disabled={gitActionsDisabled}
+              refresh={refreshGitRepoState}
+              switchBranch={switchGitBranch}
+              createBranch={createGitBranch}
+            />
+          {/if}
           <ModelDropdown
             {models}
             {selectedModel}

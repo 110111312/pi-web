@@ -2,6 +2,12 @@ import { fileURLToPath } from "node:url";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 
+function readDebugFlag(value: string | undefined): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true";
+}
+
 function dropPierreDiffThemes() {
   return {
     name: "drop-pierre-diff-themes",
@@ -20,7 +26,14 @@ function dropPierreDiffThemes() {
   };
 }
 
+const devDebugModeEnabled =
+  readDebugFlag(process.env.VITE_PI_WEB_DEBUG) ||
+  readDebugFlag(process.env.PI_WEB_DEBUG);
+
 export default defineConfig({
+  define: {
+    __PI_WEB_DEV_DEBUG__: JSON.stringify(devDebugModeEnabled),
+  },
   plugins: [dropPierreDiffThemes(), svelte()],
   resolve: {
     alias: [

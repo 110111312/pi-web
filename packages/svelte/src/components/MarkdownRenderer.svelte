@@ -191,6 +191,10 @@
   }
 
   function replaceWithMermaidSource(block: HTMLElement, source: string, statusText: string) {
+    const currentStatus = block.querySelector<HTMLElement>(".mermaid-block-status")?.textContent ?? "";
+    const currentSource = block.querySelector<HTMLElement>(".mermaid-source code")?.textContent ?? "";
+    if (currentStatus === statusText && currentSource === source) return;
+
     const status = document.createElement("div");
     status.className = "mermaid-block-status";
     status.setAttribute("aria-live", "polite");

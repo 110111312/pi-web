@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { RpcImageContent, RpcThinkingLevel } from "@pi-web/bridge/types";
+  import type {
+    RpcImageContent,
+    RpcThinkingLevel,
+    RpcWorkspaceEntry,
+    RpcWorkspaceFile,
+  } from "@pi-web/bridge/types";
   import { onMount } from "svelte";
   import ExtensionDialog from "./components/ExtensionDialog.svelte";
   import ReconnectBanner from "./components/ReconnectBanner.svelte";
@@ -21,8 +26,24 @@
     type ThemeMode,
     type ThemePreference,
   } from "./themes";
-  import { readInitialDebugMode } from "./utils/debugMode";
   import type { RpcModelInfo } from "./utils/models";
+  import {
+    DEBUG_WORKSPACE_NAME,
+    DEBUG_WORKSPACE_PATH,
+    applyDebugPrompt,
+    createDebugSession,
+    createDebugSessionEntry,
+    createDebugWorkspaceSummary,
+    debugSessionModelInfo,
+    isDebugSessionPath,
+    replaceDebugSessionMessage,
+    setDebugSessionAutoCompaction,
+    setDebugSessionModel,
+    setDebugSessionStreaming,
+    setDebugSessionThinkingLevel,
+    type DebugSession,
+    type DebugStreamPlan,
+  } from "./utils/debugSession";
   import { parseCompactSlashCommand } from "./utils/slashCommands";
 
   type RightSidebarTabId = string;
@@ -55,9 +76,16 @@
     text: string;
     images: RpcImageContent[];
   } | null>(null);
+  let debugSessions = $state<DebugSession[]>([]);
+  let activeDebugSessionPath = $state<string | null>(null);
+  let debugWorkspaceEntries = $state<RpcWorkspaceEntry[]>([]);
+  let debugWorkspaceEntriesLoading = $state(false);
+  let debugWorkspaceEntriesContextKey = $state<string | null>(null);
+  let previousDisplayedSessionPath: string | null = null;
 
+  const debugStreamTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
+  const debugWorkspaceSummary = createDebugWorkspaceSummary();
   const THEME_CACHE_KEY = "pi-web-theme";
-  const DEBUG_MODE_CACHE_KEY = "pi-web-debug-mode";
   const LEFT_RAIL_WIDTH_CACHE_KEY = "pi-web-left-rail-width";
   const RIGHT_RAIL_WIDTH_CACHE_KEY = "pi-web-right-rail-width";
   const LEFT_RAIL_MIN_WIDTH = 260;
@@ -79,17 +107,9 @@
   }
 
   const debugModeAvailable =
-    typeof window !== "undefined" &&
-    window.__PI_WEB_CONFIG__?.debugModeAvailable === true;
-
-  function readCachedDebugMode(): boolean {
-    if (typeof window === "undefined") return false;
-    return readInitialDebugMode(
-      debugModeAvailable,
-      window.localStorage.getItem(DEBUG_MODE_CACHE_KEY),
-      window.location.search,
-    );
-  }
+    (typeof window !== "undefined" &&
+      window.__PI_WEB_CONFIG__?.debugModeAvailable === true) ||
+    (import.meta.env.DEV && __PI_WEB_DEV_DEBUG__);
 
   function readCachedRailWidth(
     cacheKey: string,
@@ -108,7 +128,6 @@
   }
 
   let themePreference = $state<ThemePreference>(readCachedThemePreference());
-  let debugMode = $state(readCachedDebugMode());
   let compactLayout = $state(isCompactLayout());
   let leftRailWidth = $state(
     readCachedRailWidth(LEFT_RAIL_WIDTH_CACHE_KEY, LEFT_RAIL_DEFAULT_WIDTH, LEFT_RAIL_MIN_WIDTH, LEFT_RAIL_MAX_WIDTH),
@@ -147,12 +166,6 @@
   let nextThemeLabel = $derived<ThemeMode>(
     activeTheme.mode === "dark" ? "light" : "dark",
   );
-  let debugModeLabel = $derived(
-    debugMode ? "Disable debug mode" : "Enable debug mode",
-  );
-  let hasRightSidebarContent = $derived(
-    bridge.hasSessionOutline || fileViewerTabs.length > 0,
-  );
 
   function getWorkspaceDisplayName(workspacePath?: string | null): string | null {
     const np = workspacePath?.trim();
@@ -161,28 +174,286 @@
     return parts.at(-1) ?? np;
   }
 
+  function createLocalDebugSession(): DebugSession {
+    const backingWorkspacePath = bridge.sessionState?.workspacePath ?? null;
+    const backingWorkspace = backingWorkspacePath
+      ? bridge.workspaces.find(workspace => workspace.path === backingWorkspacePath) ?? null
+      : null;
+
+    return createDebugSession({
+      model: bridge.currentModel,
+      thinkingLevel: bridge.currentThinkingLevel,
+      backingWorkspacePath,
+      backingWorkspaceName: backingWorkspace?.name ?? null,
+    });
+  }
+
+  function updateDebugSession(
+    sessionPath: string,
+    updater: (session: DebugSession) => DebugSession,
+  ): DebugSession | null {
+    let updatedSession: DebugSession | null = null;
+    debugSessions = debugSessions.map(session => {
+      if (session.path !== sessionPath) return session;
+      updatedSession = updater(session);
+      return updatedSession;
+    });
+    return updatedSession;
+  }
+
+  function clearDebugStreamTimers(sessionPath: string) {
+    const timers = debugStreamTimers.get(sessionPath);
+    if (!timers) return;
+    for (const timer of timers) clearTimeout(timer);
+    debugStreamTimers.delete(sessionPath);
+  }
+
+  function stopDebugStream(sessionPath: string) {
+    clearDebugStreamTimers(sessionPath);
+    updateDebugSession(sessionPath, session =>
+      session.sessionState.isStreaming
+        ? setDebugSessionStreaming(session, false)
+        : session
+    );
+  }
+
+  function stopAllDebugStreams() {
+    for (const sessionPath of debugStreamTimers.keys()) {
+      stopDebugStream(sessionPath);
+    }
+  }
+
+  function scheduleDebugStream(
+    sessionPath: string,
+    stream: DebugStreamPlan | undefined,
+  ) {
+    clearDebugStreamTimers(sessionPath);
+    if (!stream || stream.chunks.length === 0) {
+      updateDebugSession(sessionPath, session => setDebugSessionStreaming(session, false));
+      return;
+    }
+
+    let elapsedMs = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    stream.chunks.forEach((chunk, index) => {
+      elapsedMs += Math.max(0, chunk.delayMs);
+      const isLast = index === stream.chunks.length - 1;
+      const timer = setTimeout(() => {
+        updateDebugSession(sessionPath, session =>
+          replaceDebugSessionMessage(session, chunk.message)
+        );
+        if (isLast) {
+          updateDebugSession(sessionPath, session =>
+            setDebugSessionStreaming(session, false)
+          );
+          clearDebugStreamTimers(sessionPath);
+        }
+      }, elapsedMs);
+      timers.push(timer);
+    });
+    debugStreamTimers.set(sessionPath, timers);
+  }
+
+  async function ensureDisplayedWorkspaceEntries(
+    force: boolean = false,
+  ): Promise<RpcWorkspaceEntry[]> {
+    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    if (!activeDebugSession) {
+      return bridge.fetchWorkspaceEntries(force);
+    }
+    if (!workspacePath) {
+      debugWorkspaceEntries = [];
+      return [];
+    }
+    if (
+      !force &&
+      debugWorkspaceEntriesContextKey === workspacePath &&
+      debugWorkspaceEntries.length > 0
+    ) {
+      return debugWorkspaceEntries;
+    }
+
+    debugWorkspaceEntriesLoading = true;
+    debugWorkspaceEntriesContextKey = workspacePath;
+    try {
+      const response = await bridge.sendCommand({
+        type: "list_workspace_entries",
+        force,
+        workspacePath,
+      });
+      if (!response.success) return debugWorkspaceEntries;
+      const entries = Array.isArray((response.data as { entries?: RpcWorkspaceEntry[] } | undefined)?.entries)
+        ? ((response.data as { entries?: RpcWorkspaceEntry[] }).entries ?? [])
+        : [];
+      debugWorkspaceEntries = entries;
+      return debugWorkspaceEntries;
+    } finally {
+      debugWorkspaceEntriesLoading = false;
+    }
+  }
+
+  async function readDisplayedWorkspaceFile(path: string): Promise<RpcWorkspaceFile> {
+    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    if (!activeDebugSession) {
+      return bridge.readWorkspaceFile(path);
+    }
+    if (!workspacePath) {
+      throw new Error("Debug session is not bound to a workspace");
+    }
+
+    const response = await bridge.sendCommand({
+      type: "read_workspace_file",
+      path,
+      workspacePath,
+    });
+    if (!response.success) {
+      throw new Error(response.error ?? "Failed to read workspace file");
+    }
+    return response.data as RpcWorkspaceFile;
+  }
+
+  let debugSessionsEnabled = $derived(debugModeAvailable);
+  let activeDebugSession = $derived(
+    debugSessions.find(session => session.path === activeDebugSessionPath) ?? null,
+  );
+  let debugSessionEntries = $derived(debugSessions.map(createDebugSessionEntry));
+  let displayedWorkspaces = $derived(
+    debugSessionsEnabled ? [debugWorkspaceSummary, ...bridge.workspaces] : bridge.workspaces,
+  );
+  let displayedWorkspaceSessions = $derived.by(() => {
+    if (!debugSessionsEnabled) return bridge.workspaceSessions;
+    return {
+      [DEBUG_WORKSPACE_PATH]: debugSessionEntries,
+      ...bridge.workspaceSessions,
+    };
+  });
+  let displayedWorkspaceSessionLoaded = $derived.by(() => {
+    if (!debugSessionsEnabled) return bridge.workspaceSessionLoaded;
+    return {
+      [DEBUG_WORKSPACE_PATH]: true,
+      ...bridge.workspaceSessionLoaded,
+    };
+  });
+  let displayedWorkspaceSessionLoading = $derived.by(() => {
+    if (!debugSessionsEnabled) return bridge.workspaceSessionLoading;
+    return {
+      [DEBUG_WORKSPACE_PATH]: false,
+      ...bridge.workspaceSessionLoading,
+    };
+  });
+  let displayedWorkspaceSessionCursors = $derived.by(() => {
+    if (!debugSessionsEnabled) return bridge.workspaceSessionCursors;
+    return {
+      [DEBUG_WORKSPACE_PATH]: null,
+      ...bridge.workspaceSessionCursors,
+    };
+  });
+  let displayedSessions = $derived(
+    debugSessionsEnabled ? [...debugSessionEntries, ...bridge.sessions] : bridge.sessions,
+  );
+  let displayedRunningSessionPaths = $derived(
+    debugSessionsEnabled
+      ? [
+          ...bridge.runningSessionPaths,
+          ...debugSessions
+            .filter(session => session.sessionState.isStreaming)
+            .map(session => session.path),
+        ]
+      : bridge.runningSessionPaths,
+  );
+  let displayedActiveSessionPath = $derived(
+    activeDebugSession?.path ?? bridge.activeSessionPath,
+  );
+  let displayedSessionState = $derived(
+    activeDebugSession?.sessionState ?? bridge.sessionState,
+  );
+  let displayedTranscript = $derived(
+    activeDebugSession?.transcript ?? bridge.transcript,
+  );
+  let displayedTranscriptHasOlder = $derived(
+    activeDebugSession ? false : bridge.transcriptHasOlder,
+  );
+  let displayedTranscriptInitialLoading = $derived(
+    activeDebugSession ? false : bridge.transcriptInitialLoading,
+  );
+  let displayedTranscriptPageLoading = $derived(
+    activeDebugSession ? false : bridge.transcriptPageLoading,
+  );
+  let displayedPendingTranscriptConfigEvent = $derived(
+    activeDebugSession ? null : bridge.pendingTranscriptConfigEvent,
+  );
+  let displayedIsStreaming = $derived(
+    activeDebugSession?.sessionState.isStreaming ?? bridge.isStreaming,
+  );
+  let displayedIsCompacting = $derived(activeDebugSession ? false : bridge.isCompacting);
+  let displayedSessionStats = $derived(activeDebugSession ? null : bridge.sessionStats);
+  let displayedTreeEntries = $derived(activeDebugSession ? [] : bridge.treeEntries);
+  let displayedHasSessionOutline = $derived(
+    activeDebugSession === null && bridge.hasSessionOutline,
+  );
+  let displayedWorkspaceEntries = $derived(
+    activeDebugSession ? debugWorkspaceEntries : bridge.workspaceEntries,
+  );
+  let displayedWorkspaceEntriesLoading = $derived(
+    activeDebugSession ? debugWorkspaceEntriesLoading : bridge.workspaceEntriesLoading,
+  );
+  let displayedWorkspaceContextKey = $derived(
+    activeDebugSession?.backingWorkspacePath ??
+      displayedSessionState?.workspacePath ??
+      displayedActiveSessionPath,
+  );
+  let displayedCurrentModel = $derived(
+    activeDebugSession ? debugSessionModelInfo(activeDebugSession) : bridge.currentModel,
+  );
+  let displayedCurrentThinkingLevel = $derived(
+    activeDebugSession?.sessionState.thinkingLevel ?? bridge.currentThinkingLevel,
+  );
+  let displayedAutoCompactionEnabled = $derived(
+    activeDebugSession
+      ? activeDebugSession.sessionState.autoCompactionEnabled
+      : bridge.sessionState?.autoCompactionEnabled ?? false,
+  );
+  let displayedPendingMessageCount = $derived(
+    activeDebugSession ? 0 : bridge.pendingMessageCount,
+  );
+  let displayedQueuedUserMessages = $derived(
+    activeDebugSession ? [] : bridge.queuedUserMessages,
+  );
+  let hasRightSidebarContent = $derived(
+    displayedHasSessionOutline || fileViewerTabs.length > 0,
+  );
+
   let activeSessionEntry = $derived(
-    bridge.sessions.find(
-      s => s.path === bridge.activeSessionPath || s.id === bridge.sessionState?.sessionId,
+    displayedSessions.find(
+      s =>
+        s.path === displayedActiveSessionPath ||
+        s.id === displayedSessionState?.sessionId,
     ) ?? null,
   );
   let activeSessionLabel = $derived.by(() => {
-    if (!bridge.hasSessionOutline) return "No active session";
+    if (activeDebugSession) return activeDebugSession.name;
+    if (!displayedHasSessionOutline) return "No active session";
     return (
-      bridge.sessionState?.sessionName ??
+      displayedSessionState?.sessionName ??
       activeSessionEntry?.name ??
-      bridge.sessionState?.sessionId ??
+      displayedSessionState?.sessionId ??
       "Untitled session"
     );
   });
   let activeWorkspaceLabel = $derived.by(() => {
+    if (activeDebugSession) return DEBUG_WORKSPACE_NAME;
     const wn = activeSessionEntry?.workspaceName?.trim();
     return (
       wn ||
       getWorkspaceDisplayName(activeSessionEntry?.workspacePath) ||
-      getWorkspaceDisplayName(bridge.sessionState?.workspacePath)
+      getWorkspaceDisplayName(displayedSessionState?.workspacePath)
     );
   });
+  let displayedActiveWorkspacePath = $derived(
+    activeDebugSession
+      ? DEBUG_WORKSPACE_PATH
+      : displayedSessionState?.workspacePath ?? activeSessionEntry?.workspacePath ?? null,
+  );
 
   let activeFileViewerTab = $derived(
     fileViewerTabs.find(t => t.id === activeRightSidebarTabId) ?? null,
@@ -208,12 +479,12 @@
   }
 
   function defaultRightSidebarTabId(): RightSidebarTabId | null {
-    if (bridge.hasSessionOutline) return TREE_TAB_ID;
+    if (displayedHasSessionOutline) return TREE_TAB_ID;
     return fileViewerTabs[0]?.id ?? null;
   }
 
   function ensureActiveRightSidebarTab() {
-    if (activeRightSidebarTabId === TREE_TAB_ID && bridge.hasSessionOutline) return;
+    if (activeRightSidebarTabId === TREE_TAB_ID && displayedHasSessionOutline) return;
 
     const activeFileTab = fileViewerTabs.find(
       t => t.id === activeRightSidebarTabId,
@@ -262,7 +533,7 @@
       return;
     }
 
-    if (bridge.hasSessionOutline) {
+    if (displayedHasSessionOutline) {
       activeRightSidebarTabId = TREE_TAB_ID;
       return;
     }
@@ -410,14 +681,17 @@
     leftSidebarCollapsed = !leftSidebarCollapsed;
   }
 
-  function toggleDebugMode() {
-    if (!debugModeAvailable) return;
-    debugMode = !debugMode;
-  }
-
   async function handleSessionSelect(sessionPath: string) {
     pendingRevision = null;
     mainContentRef?.rememberTranscriptScroll();
+
+    if (isDebugSessionPath(sessionPath)) {
+      activeDebugSessionPath = sessionPath;
+      sidebarOpen = false;
+      return;
+    }
+
+    activeDebugSessionPath = null;
     try {
       const response = await bridge.switchSession(sessionPath);
       if (response.success) {
@@ -468,6 +742,17 @@
   async function handleNewSession(workspacePath: string) {
     pendingRevision = null;
     mainContentRef?.rememberTranscriptScroll();
+
+    if (debugSessionsEnabled && workspacePath === DEBUG_WORKSPACE_PATH) {
+      const session = createLocalDebugSession();
+      debugSessions = [session, ...debugSessions];
+      activeDebugSessionPath = session.path;
+      editQueuedPayload = null;
+      sidebarOpen = false;
+      return;
+    }
+
+    activeDebugSessionPath = null;
     try {
       const response = await bridge.newSession(workspacePath);
       if (response.success) {
@@ -494,6 +779,16 @@
   }
 
   async function handleDeleteSession(sessionPath: string) {
+    if (isDebugSessionPath(sessionPath)) {
+      stopDebugStream(sessionPath);
+      const remaining = debugSessions.filter(session => session.path !== sessionPath);
+      debugSessions = remaining;
+      if (activeDebugSessionPath === sessionPath) {
+        activeDebugSessionPath = remaining[0]?.path ?? null;
+      }
+      return;
+    }
+
     try {
       await bridge.deleteSession(sessionPath);
     } catch {
@@ -531,9 +826,9 @@
   }
 
   function handleRefreshTree() {
-    if (!bridge.hasSessionOutline) return;
+    if (!displayedHasSessionOutline) return;
 
-    const sp = bridge.activeSessionPath ?? undefined;
+    const sp = displayedActiveSessionPath ?? undefined;
     bridge.sendCommand({ type: "list_tree_entries", sessionPath: sp }).catch(() => {});
   }
 
@@ -553,7 +848,7 @@
     }
 
     const MAX_HISTORY_PAGES = 50;
-    for (let page = 0; page < MAX_HISTORY_PAGES && bridge.transcriptHasOlder; page++) {
+    for (let page = 0; page < MAX_HISTORY_PAGES && displayedTranscriptHasOlder; page++) {
       await bridge.loadOlderTranscriptPage();
       await tick();
       if (mainContentRef?.scrollToTranscriptEntry(entryId)) return true;
@@ -565,7 +860,7 @@
   async function handleTreeEntrySelect(entryId: string) {
     pendingRevision = null;
 
-    const entry = bridge.treeEntries.find(c => c.id === entryId);
+    const entry = displayedTreeEntries.find(c => c.id === entryId);
     if (entry?.isOnActivePath) {
       const revealed = await revealTreeEntryInTranscript(entryId);
       if (revealed) {
@@ -595,6 +890,20 @@
     revisionEntryId?: string;
     steer?: boolean;
   }) {
+    if (activeDebugSessionPath) {
+      pendingRevision = null;
+      editQueuedPayload = null;
+      stopDebugStream(activeDebugSessionPath);
+      let stream: DebugStreamPlan | undefined;
+      updateDebugSession(activeDebugSessionPath, session => {
+        const result = applyDebugPrompt(session, payload.message, payload.images);
+        stream = result.stream;
+        return result.session;
+      });
+      scheduleDebugStream(activeDebugSessionPath, stream);
+      return;
+    }
+
     const compactCommand = parseCompactSlashCommand(payload.message);
     if (compactCommand) {
       pendingRevision = null;
@@ -639,26 +948,39 @@
   }
 
   async function handleCancelQueued(index: number) {
+    if (activeDebugSessionPath) return;
     await bridge.cancelQueuedMessage(index);
   }
 
   async function handleEditQueued(index: number) {
+    if (activeDebugSessionPath) return;
     const item = await bridge.editQueuedMessage(index);
     if (!item) return;
     editQueuedPayload = item;
   }
 
   function handleAbort() {
+    if (activeDebugSessionPath) {
+      stopDebugStream(activeDebugSessionPath);
+      return;
+    }
     bridge.abortGeneration().catch(() => {});
   }
 
   function handleModelSelect(model: RpcModelInfo) {
     if (
-      bridge.currentModel &&
-      bridge.currentModel.provider === model.provider &&
-      bridge.currentModel.id === model.id
+      displayedCurrentModel &&
+      displayedCurrentModel.provider === model.provider &&
+      displayedCurrentModel.id === model.id
     )
       return;
+
+    if (activeDebugSessionPath) {
+      updateDebugSession(activeDebugSessionPath, session =>
+        setDebugSessionModel(session, model)
+      );
+      return;
+    }
 
     bridge.sendCommand({
       type: "set_model",
@@ -668,12 +990,24 @@
   }
 
   function handleThinkingLevelSelect(level: RpcThinkingLevel) {
-    if (bridge.currentThinkingLevel === level) return;
+    if (displayedCurrentThinkingLevel === level) return;
+    if (activeDebugSessionPath) {
+      updateDebugSession(activeDebugSessionPath, session =>
+        setDebugSessionThinkingLevel(session, level)
+      );
+      return;
+    }
     bridge.setThinkingLevel(level).catch(() => {});
   }
 
   function handleAutoCompactionToggle(enabled: boolean) {
-    if (bridge.sessionState?.autoCompactionEnabled === enabled) return;
+    if (displayedAutoCompactionEnabled === enabled) return;
+    if (activeDebugSessionPath) {
+      updateDebugSession(activeDebugSessionPath, session =>
+        setDebugSessionAutoCompaction(session, enabled)
+      );
+      return;
+    }
     bridge.setAutoCompactionEnabled(enabled).catch(() => {});
   }
 
@@ -689,7 +1023,7 @@
     if (event.defaultPrevented) return;
     if (event.key !== "Escape") return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (!bridge.isStreaming) return;
+    if (!displayedIsStreaming) return;
     event.preventDefault();
     handleAbort();
   }
@@ -698,13 +1032,6 @@
   $effect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(THEME_CACHE_KEY, serializeThemePreference(themePreference));
-    }
-  });
-
-  $effect(() => {
-    if (!debugModeAvailable) return;
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(DEBUG_MODE_CACHE_KEY, String(debugMode));
     }
   });
 
@@ -729,14 +1056,33 @@
   });
 
   $effect(() => {
-    if (bridge.sessionState?.sessionFile) {
-      // Trigger side-effect: reset pending revision on session switch
-      pendingRevision = null;
+    if (!debugSessionsEnabled && activeDebugSessionPath !== null) {
+      activeDebugSessionPath = null;
     }
   });
 
   $effect(() => {
-    if (!bridge.hasSessionOutline && activeRightSidebarTabId === TREE_TAB_ID) {
+    const workspacePath = activeDebugSession?.backingWorkspacePath ?? null;
+    if (workspacePath === debugWorkspaceEntriesContextKey) return;
+    debugWorkspaceEntriesContextKey = workspacePath;
+    debugWorkspaceEntries = [];
+    debugWorkspaceEntriesLoading = false;
+  });
+
+  $effect(() => {
+    const sessionPath = displayedActiveSessionPath ?? null;
+    if (
+      sessionPath &&
+      previousDisplayedSessionPath !== null &&
+      previousDisplayedSessionPath !== sessionPath
+    ) {
+      pendingRevision = null;
+    }
+    previousDisplayedSessionPath = sessionPath;
+  });
+
+  $effect(() => {
+    if (!displayedHasSessionOutline && activeRightSidebarTabId === TREE_TAB_ID) {
       const fb = fileViewerTabs[0];
       if (fb) {
         activeRightSidebarTabId = fb.id;
@@ -744,7 +1090,7 @@
       }
     }
 
-    if (!bridge.hasSessionOutline && fileViewerTabs.length === 0) {
+    if (!displayedHasSessionOutline && fileViewerTabs.length === 0) {
       outlineSidebarOpen = false;
       return;
     }
@@ -753,7 +1099,7 @@
   });
 
   $effect(() => {
-    if (fileViewerTabs.length === 0 && !bridge.hasSessionOutline) {
+    if (fileViewerTabs.length === 0 && !displayedHasSessionOutline) {
       outlineSidebarOpen = false;
     }
     ensureActiveRightSidebarTab();
@@ -803,6 +1149,7 @@
     syncCompactLayout();
 
     return () => {
+      stopAllDebugStreams();
       stopRailResize();
     };
   });
@@ -820,14 +1167,14 @@
   style={allStyle}
 >
   <AppSidebar
-    workspaces={bridge.workspaces}
-    workspaceSessions={bridge.workspaceSessions}
-    activeSessionPath={bridge.activeSessionPath}
-    activeWorkspacePath={bridge.sessionState?.workspacePath ?? activeSessionEntry?.workspacePath ?? null}
-    runningSessionPaths={bridge.runningSessionPaths}
-    workspaceSessionLoaded={bridge.workspaceSessionLoaded}
-    workspaceSessionLoading={bridge.workspaceSessionLoading}
-    workspaceSessionCursors={bridge.workspaceSessionCursors}
+    workspaces={displayedWorkspaces}
+    workspaceSessions={displayedWorkspaceSessions}
+    activeSessionPath={displayedActiveSessionPath}
+    activeWorkspacePath={displayedActiveWorkspacePath}
+    runningSessionPaths={displayedRunningSessionPaths}
+    workspaceSessionLoaded={displayedWorkspaceSessionLoaded}
+    workspaceSessionLoading={displayedWorkspaceSessionLoading}
+    workspaceSessionCursors={displayedWorkspaceSessionCursors}
     {sidebarOpen}
     collapsed={leftSidebarCollapsed}
     onRegisterWorkspace={handleRegisterWorkspace}
@@ -861,9 +1208,6 @@
       {nextThemeLabel}
       sessionTitle={activeSessionLabel}
       workspaceName={activeWorkspaceLabel}
-      showDebugToggle={debugModeAvailable}
-      {debugMode}
-      {debugModeLabel}
       sidebarCollapsed={leftSidebarCollapsed}
       showOutlineToggle={hasRightSidebarContent}
       outlineSidebarOpen={outlineSidebarOpen}
@@ -872,7 +1216,6 @@
       onToggleOutlineSidebar={toggleOutlineSidebar}
       onToggleTheme={toggleTheme}
       onOpenThemeSettings={openThemeSettings}
-      onToggleDebugMode={toggleDebugMode}
     />
 
     <ReconnectBanner
@@ -891,27 +1234,27 @@
         bind:this={mainContentRef}
         {compatWarningVisible}
         statusEntries={bridge.statusEntries}
-        activeSessionPath={bridge.activeSessionPath}
-        transcript={bridge.transcript}
-        transcriptHasOlder={bridge.transcriptHasOlder}
-        transcriptInitialLoading={bridge.transcriptInitialLoading}
-        transcriptPageLoading={bridge.transcriptPageLoading}
-        pendingTranscriptConfigEvent={bridge.pendingTranscriptConfigEvent}
-        isStreaming={bridge.isStreaming}
-        isCompacting={bridge.isCompacting}
-        isDebugMode={debugModeAvailable && debugMode}
+        activeSessionPath={displayedActiveSessionPath}
+        transcript={displayedTranscript}
+        transcriptHasOlder={displayedTranscriptHasOlder}
+        transcriptInitialLoading={displayedTranscriptInitialLoading}
+        transcriptPageLoading={displayedTranscriptPageLoading}
+        pendingTranscriptConfigEvent={displayedPendingTranscriptConfigEvent}
+        isStreaming={displayedIsStreaming}
+        isCompacting={displayedIsCompacting}
+        isDebugMode={debugModeAvailable}
         connectionStatus={bridge.connectionStatus}
         commands={bridge.commands}
-        workspaceEntries={bridge.workspaceEntries}
-        workspaceEntriesLoading={bridge.workspaceEntriesLoading}
-        workspaceContextKey={bridge.sessionState?.workspacePath ?? bridge.activeSessionPath}
-        ensureWorkspaceEntries={bridge.fetchWorkspaceEntries}
+        workspaceEntries={displayedWorkspaceEntries}
+        workspaceEntriesLoading={displayedWorkspaceEntriesLoading}
+        workspaceContextKey={displayedWorkspaceContextKey}
+        ensureWorkspaceEntries={ensureDisplayedWorkspaceEntries}
         availableModels={bridge.availableModels}
-        currentModel={bridge.currentModel}
-        currentThinkingLevel={bridge.currentThinkingLevel}
-        autoCompactionEnabled={bridge.sessionState?.autoCompactionEnabled ?? false}
-        sessionStats={bridge.sessionStats}
-        sessionState={bridge.sessionState}
+        currentModel={displayedCurrentModel}
+        currentThinkingLevel={displayedCurrentThinkingLevel}
+        autoCompactionEnabled={displayedAutoCompactionEnabled}
+        sessionStats={displayedSessionStats}
+        sessionState={displayedSessionState}
         gitRepoState={bridge.gitRepoState}
         gitRepoLoading={bridge.gitRepoLoading}
         gitBranchSwitching={bridge.gitBranchSwitching}
@@ -920,9 +1263,9 @@
         createGitBranch={bridge.createGitBranch}
         prefillText={bridge.prefillText}
         {pendingRevision}
-        allowRevision={bridge.connectionStatus === "connected"}
-        pendingMessageCount={bridge.pendingMessageCount}
-        queuedUserMessages={bridge.queuedUserMessages}
+        allowRevision={!activeDebugSessionPath && bridge.connectionStatus === "connected"}
+        pendingMessageCount={displayedPendingMessageCount}
+        queuedUserMessages={displayedQueuedUserMessages}
         {editQueuedPayload}
         onSubmit={handlePrompt}
         onLoadOlderTranscript={bridge.loadOlderTranscriptPage}
@@ -935,7 +1278,7 @@
         onSelectThinkingLevel={handleThinkingLevelSelect}
         onToggleAutoCompaction={handleAutoCompactionToggle}
         onOpenFileReference={handleOpenFileReference}
-        readWorkspaceFile={bridge.readWorkspaceFile}
+        readWorkspaceFile={readDisplayedWorkspaceFile}
       />
 
       {#if showRightRailResizer}
@@ -955,14 +1298,14 @@
 
       {#if hasRightSidebarContent && outlineSidebarOpen}
         <AppRightSidebar
-          treeEntries={bridge.treeEntries}
+          treeEntries={displayedTreeEntries}
           sidebarOpen={outlineSidebarOpen}
-          sessionPath={bridge.activeSessionPath}
-          hasTreeTab={bridge.hasSessionOutline}
+          sessionPath={displayedActiveSessionPath}
+          hasTreeTab={displayedHasSessionOutline}
           activeTabId={activeRightSidebarTabId}
           activeFileTab={activeFileViewerTab}
           {fileViewerTabs}
-          readWorkspaceFile={bridge.readWorkspaceFile}
+          readWorkspaceFile={readDisplayedWorkspaceFile}
           onCloseSidebar={() => (outlineSidebarOpen = false)}
           onSelectTab={handleRightSidebarTabSelect}
           onCloseFileTab={closeFileViewerTab}

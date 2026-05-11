@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Bug from "lucide-svelte/icons/bug";
   import Menu from "lucide-svelte/icons/menu";
   import Moon from "lucide-svelte/icons/moon";
   import Palette from "lucide-svelte/icons/palette";
@@ -15,9 +14,6 @@
     nextThemeLabel,
     sessionTitle,
     workspaceName,
-    showDebugToggle = false,
-    debugMode = false,
-    debugModeLabel = "",
     sidebarCollapsed = false,
     showOutlineToggle = false,
     outlineSidebarOpen = false,
@@ -26,15 +22,11 @@
     onToggleOutlineSidebar = () => {},
     onToggleTheme = () => {},
     onOpenThemeSettings = () => {},
-    onToggleDebugMode = () => {},
   }: {
     theme: "dark" | "light";
     nextThemeLabel: ThemeMode;
     sessionTitle: string;
     workspaceName: string | null;
-    showDebugToggle?: boolean;
-    debugMode?: boolean;
-    debugModeLabel?: string;
     sidebarCollapsed?: boolean;
     showOutlineToggle?: boolean;
     outlineSidebarOpen?: boolean;
@@ -43,7 +35,6 @@
     onToggleOutlineSidebar?: () => void;
     onToggleTheme?: () => void;
     onOpenThemeSettings?: () => void;
-    onToggleDebugMode?: () => void;
   } = $props();
 </script>
 
@@ -98,19 +89,6 @@
         {:else}
           <PanelRightOpen aria-hidden="true" size={14} />
         {/if}
-      </button>
-    {/if}
-    {#if showDebugToggle}
-      <button
-        class="debug-toggle"
-        class:active={debugMode}
-        type="button"
-        aria-label={debugModeLabel}
-        title={debugModeLabel}
-        onclick={onToggleDebugMode}
-      >
-        <Bug aria-hidden="true" size={14} />
-        <span class="debug-label">Debug</span>
       </button>
     {/if}
     <button
@@ -215,7 +193,6 @@
 
   .sidebar-collapse,
   .outline-toggle,
-  .debug-toggle,
   .appearance-toggle,
   .theme-toggle {
     display: inline-flex;
@@ -237,13 +214,8 @@
       transform 0.15s ease;
   }
 
-  .debug-toggle {
-    padding-right: 9px;
-  }
-
   .sidebar-collapse:hover,
   .outline-toggle:hover,
-  .debug-toggle:hover,
   .appearance-toggle:hover,
   .theme-toggle:hover {
     background: var(--surface-hover);
@@ -253,16 +225,10 @@
 
   .sidebar-collapse:focus-visible,
   .outline-toggle:focus-visible,
-  .debug-toggle:focus-visible,
   .appearance-toggle:focus-visible,
   .theme-toggle:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px var(--focus-ring);
-  }
-
-  .debug-toggle.active {
-    color: var(--text);
-    background: var(--surface-active);
   }
 
   .sidebar-collapse {
@@ -301,14 +267,6 @@
     .header-status {
       gap: 4px;
     }
-
-    .debug-label {
-      display: none;
-    }
-
-    .debug-toggle {
-      padding-right: 7px;
-    }
   }
 
   @media (max-width: 640px) {
@@ -337,12 +295,6 @@
       width: 22px;
       height: 22px;
       flex: 0 0 22px;
-    }
-
-    .debug-toggle {
-      height: 24px;
-      padding: 0 7px;
-      font-size: 0.66rem;
     }
   }
 </style>

@@ -3,9 +3,9 @@ import type {
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_BRIDGE_CONFIG } from "../../types.js";
 import { createStandaloneBridgeContextFromSession } from "../backend.js";
 import { startStandaloneBridge } from "../server.js";
-import { DEFAULT_BRIDGE_CONFIG } from "../../types.js";
 
 function createMockSession() {
   let eventHandler: ((event: AgentSessionEvent) => void) | undefined;

@@ -130,7 +130,6 @@
 
 <style>
   .right-rail {
-    grid-column: 2;
     min-width: 0;
     height: 100%;
     background: var(--rail-bg);

@@ -2955,6 +2955,60 @@ describe("WsRpcAdapter", () => {
       });
     });
 
+    it("normalizes trailing slashes when aggregating workspaces", async () => {
+      const workspaceRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-trailing-workspace-"),
+      );
+      const workspaceDir = path.join(workspaceRoot, "example");
+      fs.mkdirSync(workspaceDir);
+      const workspaceDirWithSlash = `${workspaceDir}${path.sep}`;
+
+      const legacyRegisteredDir = path.join(
+        process.env.PI_WEB_SESSIONS_ROOT!,
+        `--${workspaceDirWithSlash.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`,
+      );
+      fs.mkdirSync(legacyRegisteredDir, { recursive: true });
+
+      (
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
+      ).mockReturnValue(workspaceDirWithSlash);
+      (
+        context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
+      ).mockReturnValue(undefined);
+
+      const listCommand: RpcCommand = {
+        id: "cmd-list-normalized",
+        type: "list_workspaces",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: listCommand })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        call => JSON.parse(call[0] as string),
+      );
+      const listResponse = sendCalls.find(
+        call =>
+          call.type === "response" &&
+          call.payload.command === "list_workspaces" &&
+          call.payload.id === "cmd-list-normalized",
+      );
+
+      expect(listResponse?.payload.success).toBe(true);
+      expect(listResponse?.payload.data.workspaces).toEqual([
+        expect.objectContaining({
+          id: workspaceDir,
+          name: path.basename(workspaceDir),
+          path: workspaceDir,
+        }),
+      ]);
+    });
+
     it("should handle list_workspace_entries command", async () => {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "pi-web-workspace-test-"),

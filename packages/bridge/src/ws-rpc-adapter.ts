@@ -478,7 +478,15 @@ function normalizeOptionalWorkspaceRoot(
   workspacePath?: string | null,
 ): string | undefined {
   const trimmed = workspacePath?.trim();
-  return trimmed ? trimmed : undefined;
+  if (!trimmed) return undefined;
+
+  const normalized = path.normalize(trimmed);
+  const root = path.parse(normalized).root;
+  if (normalized === root) {
+    return normalized;
+  }
+
+  return normalized.replace(/[\\/]+$/, "");
 }
 
 function workspaceDisplayName(workspacePath: string): string {
@@ -491,7 +499,10 @@ function workspaceMetadata(
   sessionPath: string,
 ): WorkspaceMetadata {
   const fallbackPath = path.dirname(sessionPath);
-  const normalizedWorkspacePath = workspacePath?.trim() || fallbackPath;
+  const normalizedWorkspacePath =
+    normalizeOptionalWorkspaceRoot(workspacePath) ??
+    normalizeOptionalWorkspaceRoot(fallbackPath) ??
+    fallbackPath;
 
   return {
     workspaceId: normalizedWorkspacePath,
@@ -529,6 +540,31 @@ function workspaceSessionDirName(workspacePath: string): string {
 
 function workspaceSessionDirPath(workspacePath: string): string {
   return path.join(getSessionsRoot(), workspaceSessionDirName(workspacePath));
+}
+
+function resolveWorkspaceSessionDirPath(workspacePath: string): string {
+  const normalizedWorkspacePath = normalizeOptionalWorkspaceRoot(workspacePath);
+  const preferredPath = workspaceSessionDirPath(
+    normalizedWorkspacePath ?? workspacePath,
+  );
+  if (fs.existsSync(preferredPath)) {
+    return preferredPath;
+  }
+
+  if (!normalizedWorkspacePath) {
+    return preferredPath;
+  }
+
+  for (const workspace of listRegisteredWorkspaces()) {
+    if (
+      normalizeOptionalWorkspaceRoot(workspace.workspacePath) ===
+      normalizedWorkspacePath
+    ) {
+      return workspace.sessionDir;
+    }
+  }
+
+  return preferredPath;
 }
 
 function isExistingDirectory(directoryPath: string): boolean {
@@ -597,8 +633,12 @@ function ensureRegisteredWorkspace(workspacePath: string): {
   metadata: WorkspaceMetadata;
   created: boolean;
 } {
-  const normalizedWorkspacePath = workspacePath.trim();
-  const sessionDir = workspaceSessionDirPath(normalizedWorkspacePath);
+  const normalizedWorkspacePath = normalizeOptionalWorkspaceRoot(workspacePath);
+  if (!normalizedWorkspacePath) {
+    throw new Error("Workspace path is required");
+  }
+
+  const sessionDir = resolveWorkspaceSessionDirPath(normalizedWorkspacePath);
   const created = !fs.existsSync(sessionDir);
 
   fs.mkdirSync(sessionDir, { recursive: true });
@@ -617,7 +657,9 @@ function listRegisteredWorkspaces(): RegisteredWorkspace[] {
   const workspaces: RegisteredWorkspace[] = [];
   for (const entry of fs.readdirSync(sessionsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const workspacePath = decodeWorkspaceSessionDirName(entry.name);
+    const workspacePath = normalizeOptionalWorkspaceRoot(
+      decodeWorkspaceSessionDirName(entry.name),
+    );
     if (!workspacePath) continue;
     workspaces.push({
       workspacePath,
@@ -775,7 +817,7 @@ function pickWorkspaceDirectoryFromNativeDialog(): string | null {
 }
 
 function listWorkspaceSessionFiles(workspacePath: string): string[] {
-  return listSessionFilesInDir(workspaceSessionDirPath(workspacePath));
+  return listSessionFilesInDir(resolveWorkspaceSessionDirPath(workspacePath));
 }
 
 function readFileChunk(
@@ -2333,7 +2375,10 @@ function buildStateFromStoredSession(
   const branch = sessionManager.getBranch();
   const context = sessionManager.buildSessionContext();
   const model = findLatestModelInfo(branch);
-  const workspacePath = sessionManager.getCwd() ?? fallbackCwd;
+  const workspacePath =
+    normalizeOptionalWorkspaceRoot(sessionManager.getCwd()) ??
+    normalizeOptionalWorkspaceRoot(fallbackCwd) ??
+    fallbackCwd;
   const workspaceEnvironments = detectWorkspaceEnvironments(workspacePath);
 
   return {
@@ -3093,7 +3138,7 @@ class SessionRuntime {
         },
         sessionFile,
       ),
-      workspacePath: this.context.state.cwd,
+      workspacePath: normalizeOptionalWorkspaceRoot(this.context.state.cwd),
       ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
       gitBranch: getCurrentGitBranch(this.context.state.cwd),
       autoCompactionEnabled: false,
@@ -3115,12 +3160,15 @@ class SessionRuntime {
       ? this.registry.getCachedSessionManager(this.selectedSessionPath)
       : null;
     const targetCwd =
-      options.workspacePath?.trim() ||
-      currentSessionManager?.getCwd() ||
-      this.context.state.sessionManager.getCwd() ||
+      normalizeOptionalWorkspaceRoot(options.workspacePath) ||
+      normalizeOptionalWorkspaceRoot(currentSessionManager?.getCwd()) ||
+      normalizeOptionalWorkspaceRoot(
+        this.context.state.sessionManager.getCwd(),
+      ) ||
+      normalizeOptionalWorkspaceRoot(this.context.state.cwd) ||
       this.context.state.cwd;
     const sessionDir = options.workspacePath
-      ? workspaceSessionDirPath(targetCwd)
+      ? resolveWorkspaceSessionDirPath(targetCwd)
       : currentSessionFile
         ? path.dirname(currentSessionFile)
         : undefined;
@@ -3208,7 +3256,7 @@ class SessionRuntime {
       treeEntries: buildTreeEntriesFromSession(sessionManager),
       sessionId: sessionManager.getSessionId(),
       sessionName: sessionDisplayName(sessionManager, sessionPath),
-      workspacePath: sessionManager.getCwd(),
+      workspacePath: normalizeOptionalWorkspaceRoot(sessionManager.getCwd()),
     };
   }
 
@@ -4385,7 +4433,7 @@ export class WsRpcAdapter {
         sessionId: sessionManager.getSessionId(),
         sessionName: sessionDisplayName(sessionManager, sessionPath),
         sessionPath,
-        workspacePath: sessionManager.getCwd(),
+        workspacePath: normalizeOptionalWorkspaceRoot(sessionManager.getCwd()),
         cancelled: false,
       },
     };

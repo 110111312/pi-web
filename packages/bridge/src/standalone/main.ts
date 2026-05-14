@@ -1,15 +1,12 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStandaloneDevReloadController } from "./dev-reload.js";
 import { DetachedSessionRegistry } from "../session-registry.js";
+import type { BridgeConfig } from "../types.js";
 import { createStandaloneBridgeContext } from "./backend.js";
 import type { StandaloneBridgeBackend } from "./backend.js";
-import {
-  loadStandaloneRuntime,
-  type StandaloneRuntime,
-} from "./runtime.js";
-import type { BridgeConfig } from "../types.js";
+import { createStandaloneDevReloadController } from "./dev-reload.js";
+import { loadStandaloneRuntime, type StandaloneRuntime } from "./runtime.js";
 
 const DEFAULT_STANDALONE_PORT = 8080;
 

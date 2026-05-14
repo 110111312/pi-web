@@ -63,6 +63,34 @@ pnpm run build:bridge
 node dist/bridge/standalone/main.js
 ```
 
+## Electron app
+
+An Electron desktop shell now lives in `packages/electron/`.
+
+Build the renderer and Electron main process:
+
+```bash
+pnpm run build:electron
+```
+
+Run the desktop app in development mode. This starts the Svelte dev server,
+starts the bridge on `127.0.0.1:8080`, and launches Electron against the Vite
+renderer (which proxies `/ws` back to the bridge):
+
+```bash
+pnpm run dev:electron
+```
+
+Create desktop distributables with `electron-builder`:
+
+```bash
+pnpm run dist:electron
+```
+
+By default the desktop app opens the repo root as the workspace in development
+and the user's home directory in packaged builds. You can override that with
+`PI_WEB_ELECTRON_WORKSPACE=/path/to/project`.
+
 ---
 
 ## License

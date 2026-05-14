@@ -17,6 +17,8 @@
     sidebarCollapsed = false,
     showOutlineToggle = false,
     outlineSidebarOpen = false,
+    desktopPlatform = null,
+    desktopTitleBarStyle = "system",
     onToggleSidebar = () => {},
     onToggleSidebarCollapse = () => {},
     onToggleOutlineSidebar = () => {},
@@ -30,6 +32,8 @@
     sidebarCollapsed?: boolean;
     showOutlineToggle?: boolean;
     outlineSidebarOpen?: boolean;
+    desktopPlatform?: PiDesktopPlatform | null;
+    desktopTitleBarStyle?: PiDesktopTitleBarStyle;
     onToggleSidebar?: () => void;
     onToggleSidebarCollapse?: () => void;
     onToggleOutlineSidebar?: () => void;
@@ -38,14 +42,20 @@
   } = $props();
 </script>
 
-<header class="app-header">
+<header
+  class="app-header"
+  class:desktop-chrome={desktopTitleBarStyle !== "system"}
+  class:desktop-mac={desktopPlatform === "darwin"}
+  class:desktop-win={desktopPlatform === "win32"}
+  class:desktop-left-safe={desktopPlatform === "darwin" && sidebarCollapsed}
+>
   <div class="header-leading">
     <button
       class="hamburger"
       aria-label="Toggle sidebar"
       onclick={onToggleSidebar}
     >
-      <Menu aria-hidden="true" size={16} />
+      <Menu aria-hidden="true" size={20} />
     </button>
     <button
       class="sidebar-collapse"
@@ -59,9 +69,9 @@
       onclick={onToggleSidebarCollapse}
     >
       {#if sidebarCollapsed}
-        <PanelLeftOpen aria-hidden="true" size={14} />
+        <PanelLeftOpen aria-hidden="true" size={18} />
       {:else}
-        <PanelLeftClose aria-hidden="true" size={14} />
+        <PanelLeftClose aria-hidden="true" size={18} />
       {/if}
     </button>
     <div class="header-brand">
@@ -85,9 +95,9 @@
         onclick={onToggleOutlineSidebar}
       >
         {#if outlineSidebarOpen}
-          <PanelRightClose aria-hidden="true" size={14} />
+          <PanelRightClose aria-hidden="true" size={18} />
         {:else}
-          <PanelRightOpen aria-hidden="true" size={14} />
+          <PanelRightOpen aria-hidden="true" size={18} />
         {/if}
       </button>
     {/if}
@@ -98,7 +108,7 @@
       title="Open appearance settings"
       onclick={onOpenThemeSettings}
     >
-      <Palette aria-hidden="true" size={14} />
+      <Palette aria-hidden="true" size={18} />
     </button>
     <button
       class="theme-toggle"
@@ -108,9 +118,9 @@
       onclick={onToggleTheme}
     >
       {#if theme === "dark"}
-        <Sun aria-hidden="true" size={14} />
+        <Sun aria-hidden="true" size={18} />
       {:else}
-        <Moon aria-hidden="true" size={14} />
+        <Moon aria-hidden="true" size={18} />
       {/if}
     </button>
   </div>
@@ -124,12 +134,23 @@
     gap: 12px;
     padding: 6px 8px 10px 8px;
     height: 44px;
-    /*padding: 0 14px;*/
     border-bottom: 1px solid var(--border);
     border-top-left-radius: 14px;
     background: var(--bg);
     flex-shrink: 0;
     z-index: 20;
+  }
+
+  .app-header.desktop-chrome {
+    -webkit-app-region: drag;
+    padding-top: calc(6px + var(--desktop-top-inset, 0px));
+    padding-left: 8px;
+    padding-right: calc(8px + var(--desktop-right-inset, 0px));
+    height: calc(44px + var(--desktop-top-inset, 0px));
+  }
+
+  .app-header.desktop-left-safe {
+    padding-left: calc(8px + var(--desktop-left-inset, 0px));
   }
 
   .header-leading {
@@ -143,8 +164,8 @@
     display: none;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     background: none;
     border: none;
@@ -191,6 +212,10 @@
     flex-shrink: 0;
   }
 
+  .app-header.desktop-chrome button {
+    -webkit-app-region: no-drag;
+  }
+
   .sidebar-collapse,
   .outline-toggle,
   .appearance-toggle,
@@ -198,14 +223,14 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 22px;
-    width: 22px;
-    flex: 0 0 22px;
+    height: 28px;
+    width: 28px;
+    flex: 0 0 28px;
     padding: 0 7px;
-    border-radius: 6px;
+    border-radius: 8px;
     border: none;
     background: transparent;
-    font-size: 0.68rem;
+    font-size: 0.72rem;
     color: var(--text-subtle);
     cursor: pointer;
     transition:
@@ -233,20 +258,20 @@
 
   .sidebar-collapse {
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     padding: 0;
-    flex: 0 0 22px;
+    flex: 0 0 28px;
   }
 
   .outline-toggle,
   .appearance-toggle,
   .theme-toggle {
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     padding: 0;
-    flex: 0 0 22px;
+    flex: 0 0 28px;
   }
 
   @media (max-width: 900px) {
@@ -292,9 +317,9 @@
     .outline-toggle,
     .appearance-toggle,
     .theme-toggle {
-      width: 22px;
-      height: 22px;
-      flex: 0 0 22px;
+      width: 26px;
+      height: 26px;
+      flex: 0 0 26px;
     }
   }
 </style>

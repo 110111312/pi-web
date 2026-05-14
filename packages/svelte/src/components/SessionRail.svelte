@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import ChevronDown from "lucide-svelte/icons/chevron-down";
+  import ChevronRight from "lucide-svelte/icons/chevron-right";
   import Folder from "lucide-svelte/icons/folder";
   import FolderOpen from "lucide-svelte/icons/folder-open";
   import Plus from "lucide-svelte/icons/plus";
@@ -87,6 +89,7 @@
     x: 0,
     y: 0,
   });
+  let workspacesRootExpanded = $state(true);
 
   function sessionActivityValue(session: SessionEntry): number {
     const parsed = Date.parse(session.updatedAt ?? session.timestamp ?? "");
@@ -248,6 +251,7 @@
       return;
     }
 
+    workspacesRootExpanded = true;
     if (activeWorkspace.path === lastAutoExpandedWorkspacePath) return;
     lastAutoExpandedWorkspacePath = activeWorkspace.path;
     expandWorkspace(activeWorkspace.id);
@@ -262,113 +266,151 @@
 </script>
 
 <div class="session-rail" role="button" tabindex="0" onclick={closeMenu} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && closeMenu()}>
-  <div class="rail-header">
-    <span class="rail-title">Workspaces</span>
-    <div class="rail-actions">
-      {#if headerActions}
-        {@render headerActions()}
-      {/if}
-    </div>
-  </div>
-
-  {#if workspaceGroups.length > 0}
-    <div class="rail-list">
-      {#each workspaceGroups as workspace (workspace.id)}
-        <section
-          class="workspace-group"
-          class:expanded={workspace.isExpanded}
-          class:active={workspace.isActive}
-        >
-          <div class="workspace-row" title={workspace.path}>
-            <button
-              class="workspace-toggle"
-              type="button"
-              aria-expanded={workspace.isExpanded}
-              onclick={() => toggleWorkspace(workspace.id)}
-            >
-              {#if workspace.isExpanded}
-                <FolderOpen
-                  aria-hidden="true"
-                  size={WORKSPACE_FOLDER_ICON_SIZE}
-                  color="var(--text-subtle)"
-                  style={WORKSPACE_FOLDER_ICON_STYLE}
-                />
-              {:else}
-                <Folder
-                  aria-hidden="true"
-                  size={WORKSPACE_FOLDER_ICON_SIZE}
-                  color="var(--text-subtle)"
-                  style={WORKSPACE_FOLDER_ICON_STYLE}
-                />
-              {/if}
-              <span class="workspace-copy">
-                <span class="workspace-name">{workspace.name}</span>
-                <span class="workspace-path">{workspace.path}</span>
-              </span>
-            </button>
-            <button
-              class="workspace-new-session"
-              type="button"
-              aria-label={`New session in ${workspace.name}`}
-              title={`New session in ${workspace.path}`}
-              onclick={(event) => {
-                event.stopPropagation();
-                handleWorkspaceNewSession(workspace);
-              }}
-            >
-              <Plus size={14} aria-hidden="true" />
-            </button>
+  <div class="rail-list">
+    <section class="workspace-root" class:expanded={workspacesRootExpanded}>
+      <div class="workspace-row workspace-root-row">
+        <div class="workspace-root-chip">
+          <button
+            class="workspace-toggle workspace-root-toggle"
+            type="button"
+            aria-expanded={workspacesRootExpanded}
+            aria-label={workspacesRootExpanded ? "Collapse workspaces" : "Expand workspaces"}
+            onclick={() => (workspacesRootExpanded = !workspacesRootExpanded)}
+            onpointerup={(event) => {
+              if (event.currentTarget instanceof HTMLButtonElement) {
+                event.currentTarget.blur();
+              }
+            }}
+          >
+            {#if workspacesRootExpanded}
+              <ChevronDown
+                aria-hidden="true"
+                size={16}
+                color="var(--text-subtle)"
+                style="display: block; flex-shrink: 0;"
+              />
+            {:else}
+              <ChevronRight
+                aria-hidden="true"
+                size={16}
+                color="var(--text-subtle)"
+                style="display: block; flex-shrink: 0;"
+              />
+            {/if}
+            <span class="workspace-copy workspace-root-copy">
+              <span class="workspace-root-label">Workspaces</span>
+            </span>
+          </button>
+          <div class="rail-actions">
+            {#if headerActions}
+              {@render headerActions()}
+            {/if}
           </div>
+        </div>
+      </div>
 
-          {#if workspace.isExpanded}
-            <div class="session-list">
-              {#if !workspace.isLoaded}
-                <p class="workspace-empty">Loading sessions...</p>
-              {:else if workspace.sessions.length === 0}
-                <p class="workspace-empty">No sessions yet</p>
-              {/if}
-
-              {#each workspace.recentSessions as session (session.path)}
-                <div
-                  class="rail-item"
-                  role="button"
-                  tabindex="0"
-                  class:active={session.path === activeSessionPath}
-                  class:running={isSessionRunning(session.path)}
-                  onclick={() => handleSessionSelect(session.path)}
-                  onkeydown={(event) => event.key === "Enter" && handleSessionSelect(session.path)}
-                  oncontextmenu={(event) => openMenu(event, session.path)}
-                >
-                  <span class="item-indicator"></span>
-                  <span class="item-label">{session.name}</span>
-                  {#if isSessionRunning(session.path)}
-                    <span class="item-status" role="status" aria-label="Agent running" title="Agent running">
-                      <span class="item-status-dot" aria-hidden="true"></span>
-                    </span>
-                  {/if}
-                </div>
-              {/each}
-
-              {#if workspace.remainingSessions.length > 0 || workspace.nextCursor}
-                <div class="older-sessions">
+      {#if workspacesRootExpanded}
+        {#if workspaceGroups.length > 0}
+          <div class="workspace-tree">
+            {#each workspaceGroups as workspace (workspace.id)}
+              <section
+                class="workspace-group"
+                class:expanded={workspace.isExpanded}
+                class:active={workspace.isActive}
+              >
+                <div class="workspace-row" title={workspace.path}>
                   <button
-                    class="older-toggle"
+                    class="workspace-toggle"
                     type="button"
-                    aria-haspopup="dialog"
-                    onclick={() => openOlderSessions(workspace.id)}
+                    aria-expanded={workspace.isExpanded}
+                    onclick={() => toggleWorkspace(workspace.id)}
                   >
-                    <span>Browse older sessions</span>
+                    {#if workspace.isExpanded}
+                      <FolderOpen
+                        aria-hidden="true"
+                        size={WORKSPACE_FOLDER_ICON_SIZE}
+                        color="var(--text-subtle)"
+                        style={WORKSPACE_FOLDER_ICON_STYLE}
+                      />
+                    {:else}
+                      <Folder
+                        aria-hidden="true"
+                        size={WORKSPACE_FOLDER_ICON_SIZE}
+                        color="var(--text-subtle)"
+                        style={WORKSPACE_FOLDER_ICON_STYLE}
+                      />
+                    {/if}
+                    <span class="workspace-copy">
+                      <span class="workspace-name">{workspace.name}</span>
+                      <span class="workspace-path">{workspace.path}</span>
+                    </span>
+                  </button>
+                  <button
+                    class="workspace-new-session"
+                    type="button"
+                    aria-label={`New session in ${workspace.name}`}
+                    title={`New session in ${workspace.path}`}
+                    onclick={(event) => {
+                      event.stopPropagation();
+                      handleWorkspaceNewSession(workspace);
+                    }}
+                  >
+                    <Plus size={14} aria-hidden="true" />
                   </button>
                 </div>
-              {/if}
-            </div>
-          {/if}
-        </section>
-      {/each}
-    </div>
-  {:else}
-    <p class="rail-empty">No workspaces</p>
-  {/if}
+
+                {#if workspace.isExpanded}
+                  <div class="session-list">
+                    {#if !workspace.isLoaded}
+                      <p class="workspace-empty">Loading sessions...</p>
+                    {:else if workspace.sessions.length === 0}
+                      <p class="workspace-empty">No sessions yet</p>
+                    {/if}
+
+                    {#each workspace.recentSessions as session (session.path)}
+                      <div
+                        class="rail-item"
+                        role="button"
+                        tabindex="0"
+                        class:active={session.path === activeSessionPath}
+                        class:running={isSessionRunning(session.path)}
+                        onclick={() => handleSessionSelect(session.path)}
+                        onkeydown={(event) => event.key === "Enter" && handleSessionSelect(session.path)}
+                        oncontextmenu={(event) => openMenu(event, session.path)}
+                      >
+                        <span class="item-indicator"></span>
+                        <span class="item-label">{session.name}</span>
+                        {#if isSessionRunning(session.path)}
+                          <span class="item-status" role="status" aria-label="Agent running" title="Agent running">
+                            <span class="item-status-dot" aria-hidden="true"></span>
+                          </span>
+                        {/if}
+                      </div>
+                    {/each}
+
+                    {#if workspace.remainingSessions.length > 0 || workspace.nextCursor}
+                      <div class="older-sessions">
+                        <button
+                          class="older-toggle"
+                          type="button"
+                          aria-haspopup="dialog"
+                          onclick={() => openOlderSessions(workspace.id)}
+                        >
+                          <span>Browse older sessions</span>
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </section>
+            {/each}
+          </div>
+        {:else}
+          <p class="rail-empty nested">No workspaces</p>
+        {/if}
+      {/if}
+    </section>
+  </div>
 </div>
 
 {#if activeOlderWorkspace}
@@ -474,28 +516,58 @@
     position: relative;
   }
 
-  .rail-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    min-height: 44px;
-    padding: 6px 4px 10px 8px;
-    color: var(--text-subtle);
-    flex-shrink: 0;
-  }
-
-  .rail-title {
-    font-size: 0.64rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
   .rail-actions {
     display: flex;
     align-items: center;
     gap: 2px;
+    flex-shrink: 0;
+    opacity: 0;
+    transform: translateX(2px);
+    transition:
+      opacity 0.14s ease,
+      transform 0.14s ease;
+  }
+
+  .workspace-root-row {
+    min-height: calc(44px + var(--desktop-rail-top-inset, 0px));
+  }
+
+  .workspace-root-chip {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 28px;
+    padding: 0 4px 0 0;
+    border-radius: 10px;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+
+  .workspace-root-toggle {
+    min-height: 24px;
+    padding: 2px 0 2px 10px;
+    gap: 6px;
+  }
+
+  .workspace-root-copy {
+    justify-content: center;
+    gap: 0;
+  }
+
+  .workspace-root-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--text-muted);
+  }
+
+  .workspace-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 4px 0 0;
   }
 
   .rail-list {
@@ -530,8 +602,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    min-height: 42px;
-    padding: 4px 6px 4px 8px;
+    min-height: 34px;
+    padding: 2px 4px 2px 8px;
     border-radius: 10px;
     background: transparent;
     color: var(--text-muted);
@@ -558,12 +630,39 @@
     color: var(--text);
   }
 
+  .workspace-row.workspace-root-row:hover,
+  .workspace-row.workspace-root-row:focus-within {
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .workspace-root-chip:hover,
+  .workspace-root-chip:focus-within {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .workspace-root-chip:hover .rail-actions,
+  .workspace-root-chip:focus-within .rail-actions {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .workspace-root-toggle:focus-visible {
+    outline: none;
+  }
+
+  .workspace-row.workspace-root-row {
+    padding: calc(4px + var(--desktop-rail-top-inset, 0px)) 6px 2px
+      calc(8px + var(--desktop-rail-left-inset, 0px));
+  }
+
   .workspace-copy {
     flex: 1 1 auto;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
 
   .workspace-name,
@@ -575,18 +674,26 @@
   }
 
   .workspace-name {
-    font-size: 0.84rem;
+    font-size: 0.82rem;
     font-weight: 600;
+    line-height: 1.2;
   }
 
   .workspace-path {
-    font-size: 0.68rem;
+    display: none;
+    font-size: 0.66rem;
+    line-height: 1.15;
     color: var(--text-subtle);
   }
 
+  .workspace-group.expanded .workspace-path,
+  .workspace-group.active .workspace-path {
+    display: block;
+  }
+
   .workspace-new-session {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -622,7 +729,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 0 0 6px 20px;
+    padding: 0 4px 6px 28px;
   }
 
   .workspace-empty {
@@ -636,7 +743,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 32px;
+    height: 30px;
     padding: 0 10px;
     border-radius: 8px;
     background: transparent;
@@ -732,6 +839,10 @@
     padding: 8px 10px;
     font-size: 0.78rem;
     color: var(--text-subtle);
+  }
+
+  .rail-empty.nested {
+    padding-left: 34px;
   }
 
   .older-modal-overlay {

@@ -21,6 +21,7 @@
     resolveActiveTheme,
     resolveAppThemeVars,
     serializeThemePreference,
+    setThemePreferenceMode,
     setThemePreferenceTheme,
     toggleThemePreferenceMode,
     type ThemeMode,
@@ -95,14 +96,64 @@
   const RIGHT_RAIL_MAX_WIDTH = 760;
   const RIGHT_RAIL_DEFAULT_WIDTH = 420;
   const MIN_CENTER_COLUMN_WIDTH = 360;
+  const desktopPlatform =
+    typeof window !== "undefined" ? window.piDesktop?.platform ?? null : null;
+  const desktopTitleBarStyle =
+    typeof window !== "undefined"
+      ? window.piDesktop?.titleBarStyle ?? "system"
+      : "system";
 
   type RailSide = "left" | "right";
+
+  function hasStoredThemePreference(): boolean {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(THEME_CACHE_KEY) !== null;
+  }
+
+  function readSystemPrefersLight(): boolean {
+    if (typeof window === "undefined") return false;
+    const desktopTheme = window.piDesktop?.systemTheme;
+    if (desktopTheme) {
+      return desktopTheme === "light";
+    }
+    return window.matchMedia("(prefers-color-scheme: light)").matches;
+  }
+
+  function resolveDesktopChromeVars(): Record<string, string> {
+    if (desktopTitleBarStyle === "hiddenInset") {
+      return {
+        "--desktop-top-inset": "6px",
+        "--desktop-left-inset": desktopPlatform === "darwin" ? "76px" : "0px",
+        "--desktop-rail-top-inset": desktopPlatform === "darwin" ? "30px" : "0px",
+        "--desktop-rail-left-inset": "0px",
+        "--desktop-right-inset": "0px",
+      };
+    }
+
+    if (desktopTitleBarStyle === "overlay") {
+      return {
+        "--desktop-top-inset": "0px",
+        "--desktop-left-inset": "0px",
+        "--desktop-rail-top-inset": "0px",
+        "--desktop-rail-left-inset": "0px",
+        "--desktop-right-inset": desktopPlatform === "win32" ? "138px" : "0px",
+      };
+    }
+
+    return {
+      "--desktop-top-inset": "0px",
+      "--desktop-left-inset": "0px",
+      "--desktop-rail-top-inset": "0px",
+      "--desktop-rail-left-inset": "0px",
+      "--desktop-right-inset": "0px",
+    };
+  }
 
   function readCachedThemePreference(): ThemePreference {
     if (typeof window === "undefined") return readStoredThemePreference(null, false);
     return readStoredThemePreference(
       window.localStorage.getItem(THEME_CACHE_KEY),
-      window.matchMedia("(prefers-color-scheme: light)").matches,
+      readSystemPrefersLight(),
     );
   }
 
@@ -127,6 +178,7 @@
       : fallback;
   }
 
+  let themePreferenceExplicit = $state(hasStoredThemePreference());
   let themePreference = $state<ThemePreference>(readCachedThemePreference());
   let compactLayout = $state(isCompactLayout());
   let leftRailWidth = $state(
@@ -144,7 +196,13 @@
   const darkThemes = listThemes("dark");
   const lightThemes = listThemes("light");
 
+  const desktopChromeVars = resolveDesktopChromeVars();
+
   let activeTheme = $derived(resolveActiveTheme(themePreference));
+  let desktopNativeThemeSource = $derived<PiDesktopThemeSource>(
+    themePreferenceExplicit ? activeTheme.mode : "system",
+  );
+
   function styleString(styles: Record<string, string>): string {
     return Object.entries(styles)
       .map(([key, value]) => `${key}: ${value}`)
@@ -154,12 +212,16 @@
   let allStyle = $derived.by(() => {
     const s: Record<string, string> = {
       ...resolveAppThemeVars(activeTheme),
+      ...desktopChromeVars,
       "color-scheme": String(activeTheme.mode),
     };
     if (!compactLayout) {
-      s["grid-template-columns"] = leftSidebarCollapsed
-        ? "minmax(0, 1fr)"
-        : `${leftRailWidth}px minmax(0, 1fr)`;
+      const columns = [
+        ...(leftSidebarCollapsed ? [] : [`${leftRailWidth}px`]),
+        "minmax(0, 1fr)",
+        ...(shellRightRailOpen ? [`${rightRailWidth}px`] : []),
+      ];
+      s["grid-template-columns"] = columns.join(" ");
     }
     return styleString(s);
   });
@@ -471,11 +533,8 @@
   let showRightRailResizer = $derived(
     !compactLayout && hasRightSidebarContent && outlineSidebarOpen,
   );
-
-  let appBodyStyle = $derived(
-    !compactLayout && hasRightSidebarContent && outlineSidebarOpen
-      ? `grid-template-columns: minmax(0, 1fr) ${rightRailWidth}px`
-      : undefined,
+  let shellRightRailOpen = $derived(
+    !compactLayout && hasRightSidebarContent && outlineSidebarOpen,
   );
   let leftRailResizerStyle = $derived(`left: ${leftRailWidth - 5}px`);
   let rightRailResizerStyle = $derived(`right: ${rightRailWidth - 5}px`);
@@ -655,8 +714,21 @@
     rightRailWidth = clampRailWidth("right", RIGHT_RAIL_DEFAULT_WIDTH);
   }
 
+  function applyExplicitThemePreference(nextPreference: ThemePreference) {
+    themePreferenceExplicit = true;
+    themePreference = nextPreference;
+  }
+
+  function applySystemThemeMode(mode: ThemeMode) {
+    if (themePreferenceExplicit) {
+      return;
+    }
+
+    themePreference = setThemePreferenceMode(themePreference, mode);
+  }
+
   function toggleTheme() {
-    themePreference = toggleThemePreferenceMode(themePreference);
+    applyExplicitThemePreference(toggleThemePreferenceMode(themePreference));
   }
 
   function openThemeSettings() {
@@ -668,10 +740,12 @@
   }
 
   function handleThemePresetSelect(themeId: string) {
-    themePreference = setThemePreferenceTheme(
-      themePreference,
-      themePreference.mode,
-      themeId,
+    applyExplicitThemePreference(
+      setThemePreferenceTheme(
+        themePreference,
+        themePreference.mode,
+        themeId,
+      ),
     );
   }
 
@@ -769,7 +843,14 @@
 
   async function handleRegisterWorkspace() {
     try {
-      const response = await bridge.registerWorkspace();
+      const workspacePath = window.piDesktop
+        ? await window.piDesktop.pickWorkspace()
+        : undefined;
+      if (window.piDesktop && !workspacePath) {
+        return;
+      }
+
+      const response = await bridge.registerWorkspace(workspacePath ?? undefined);
       if (response.success) {
         const data = response.data as
           | { cancelled?: boolean; workspacePath?: string }
@@ -1023,6 +1104,46 @@
     bridge.dismissNotification(id);
   }
 
+  function resolveDesktopMenuWorkspacePath(): string | null {
+    const currentWorkspacePath = displayedSessionState?.workspacePath?.trim();
+    if (currentWorkspacePath) {
+      return currentWorkspacePath;
+    }
+
+    if (displayedActiveWorkspacePath && displayedActiveWorkspacePath !== DEBUG_WORKSPACE_PATH) {
+      return displayedActiveWorkspacePath;
+    }
+
+    return (
+      displayedWorkspaces.find(workspace => workspace.path !== DEBUG_WORKSPACE_PATH)?.path ??
+      null
+    );
+  }
+
+  function handleDesktopMenuAction(action: PiDesktopMenuAction) {
+    switch (action) {
+      case "open-workspace":
+        void handleRegisterWorkspace();
+        return;
+      case "refresh-workspaces":
+        handleRefreshWorkspaces();
+        return;
+      case "new-session": {
+        const workspacePath = resolveDesktopMenuWorkspacePath();
+        if (workspacePath) {
+          void handleNewSession(workspacePath);
+        }
+        return;
+      }
+      case "toggle-theme":
+        toggleTheme();
+        return;
+      case "open-theme-settings":
+        openThemeSettings();
+        return;
+    }
+  }
+
   function handleGlobalKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     if (event.key !== "Escape") return;
@@ -1034,8 +1155,14 @@
 
   // Effects
   $effect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && themePreferenceExplicit) {
       window.localStorage.setItem(THEME_CACHE_KEY, serializeThemePreference(themePreference));
+    }
+  });
+
+  $effect(() => {
+    if (typeof window !== "undefined" && window.piDesktop) {
+      void window.piDesktop.setNativeTheme(desktopNativeThemeSource).catch(() => {});
     }
   });
 
@@ -1151,7 +1278,30 @@
   onMount(() => {
     syncCompactLayout();
 
+    const disposers: Array<() => void> = [];
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
+    const handleMediaThemeChange = (event: MediaQueryListEvent) => {
+      applySystemThemeMode(event.matches ? "light" : "dark");
+    };
+
+    mediaQuery.addEventListener("change", handleMediaThemeChange);
+    disposers.push(() => {
+      mediaQuery.removeEventListener("change", handleMediaThemeChange);
+    });
+
+    if (window.piDesktop) {
+      disposers.push(window.piDesktop.onMenuAction(handleDesktopMenuAction));
+      disposers.push(
+        window.piDesktop.onSystemThemeChange(mode => {
+          applySystemThemeMode(mode);
+        }),
+      );
+    }
+
     return () => {
+      for (const dispose of disposers) {
+        dispose();
+      }
       stopAllDebugStreams();
       stopRailResize();
     };
@@ -1163,10 +1313,13 @@
 <div
   class="app-shell"
   class:left-rail-collapsed={leftSidebarCollapsed}
+  class:right-rail-open={shellRightRailOpen}
   data-theme={activeTheme.id}
   data-theme-mode={activeTheme.mode}
   data-dark-theme={themePreference.darkThemeId}
   data-light-theme={themePreference.lightThemeId}
+  data-desktop-platform={desktopPlatform ?? undefined}
+  data-desktop-titlebar={desktopTitleBarStyle}
   style={allStyle}
 >
   <AppSidebar
@@ -1214,6 +1367,8 @@
       sidebarCollapsed={leftSidebarCollapsed}
       showOutlineToggle={hasRightSidebarContent}
       outlineSidebarOpen={outlineSidebarOpen}
+      desktopPlatform={desktopPlatform}
+      desktopTitleBarStyle={desktopTitleBarStyle}
       onToggleSidebar={toggleSessionSidebar}
       onToggleSidebarCollapse={toggleLeftSidebarCollapse}
       onToggleOutlineSidebar={toggleOutlineSidebar}
@@ -1227,12 +1382,7 @@
       reconnectCount={bridge.reconnectCount}
     />
 
-    <div
-      class="app-body"
-      class:has-right-rail={hasRightSidebarContent}
-      class:right-rail-open={hasRightSidebarContent && outlineSidebarOpen}
-      style={appBodyStyle ? appBodyStyle : undefined}
-    >
+    <div class="app-body">
       <AppMainContent
         bind:this={mainContentRef}
         {compatWarningVisible}
@@ -1286,39 +1436,40 @@
         readWorkspaceFile={readDisplayedWorkspaceFile}
       />
 
-      {#if showRightRailResizer}
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <div
-          class="rail-resizer right"
-          class:active={activeRailResize?.side === "right"}
-          style={rightRailResizerStyle}
-          role="separator"
-          aria-label="Resize right sidebar. Double-click to reset."
-          tabindex="0"
-          title="Drag to resize the right sidebar. Double-click to reset."
-          onpointerdown={(e) => startRailResize("right", e)}
-          ondblclick={() => resetRailWidth("right")}
-        ></div>
-      {/if}
-
-      {#if hasRightSidebarContent && outlineSidebarOpen}
-        <AppRightSidebar
-          treeEntries={displayedTreeEntries}
-          sidebarOpen={outlineSidebarOpen}
-          sessionPath={displayedActiveSessionPath}
-          hasTreeTab={displayedHasSessionOutline}
-          activeTabId={activeRightSidebarTabId}
-          activeFileTab={activeFileViewerTab}
-          {fileViewerTabs}
-          readWorkspaceFile={readDisplayedWorkspaceFile}
-          onCloseSidebar={() => (outlineSidebarOpen = false)}
-          onSelectTab={handleRightSidebarTabSelect}
-          onCloseFileTab={closeFileViewerTab}
-          onSelectTreeEntry={handleTreeEntrySelect}
-        />
-      {/if}
     </div>
   </div>
+
+  {#if showRightRailResizer}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+      class="rail-resizer right"
+      class:active={activeRailResize?.side === "right"}
+      style={rightRailResizerStyle}
+      role="separator"
+      aria-label="Resize right sidebar. Double-click to reset."
+      tabindex="0"
+      title="Drag to resize the right sidebar. Double-click to reset."
+      onpointerdown={(e) => startRailResize("right", e)}
+      ondblclick={() => resetRailWidth("right")}
+    ></div>
+  {/if}
+
+  {#if hasRightSidebarContent && outlineSidebarOpen}
+    <AppRightSidebar
+      treeEntries={displayedTreeEntries}
+      sidebarOpen={outlineSidebarOpen}
+      sessionPath={displayedActiveSessionPath}
+      hasTreeTab={displayedHasSessionOutline}
+      activeTabId={activeRightSidebarTabId}
+      activeFileTab={activeFileViewerTab}
+      {fileViewerTabs}
+      readWorkspaceFile={readDisplayedWorkspaceFile}
+      onCloseSidebar={() => (outlineSidebarOpen = false)}
+      onSelectTab={handleRightSidebarTabSelect}
+      onCloseFileTab={closeFileViewerTab}
+      onSelectTreeEntry={handleTreeEntrySelect}
+    />
+  {/if}
 
   <AppNotifications
     connectionError={bridge.connectionError}
@@ -1410,14 +1561,7 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
-  }
-
-  .app-body.has-right-rail {
     position: relative;
-  }
-
-  .app-body.has-right-rail.right-rail-open {
-    grid-template-columns: minmax(0, 1fr) clamp(280px, 22vw, 340px);
   }
 
   @media (max-width: 900px) {
@@ -1431,9 +1575,7 @@
       display: none;
     }
 
-    .app-body,
-    .app-body.has-right-rail,
-    .app-body.has-right-rail.right-rail-open {
+    .app-body {
       grid-template-columns: 1fr;
       position: relative;
     }

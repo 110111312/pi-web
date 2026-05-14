@@ -1,10 +1,6 @@
 import { BridgeEventBus } from "../bridge-event-bus.js";
 import { BridgeServer, type WsConnectionHandlerFactory } from "../server.js";
 import { DetachedSessionRegistry } from "../session-registry.js";
-import {
-  createStandaloneBridgeContext,
-  type StandaloneBridgeBackend,
-} from "./backend.js";
 import type {
   BridgeConfig,
   BridgeEvent,
@@ -12,6 +8,10 @@ import type {
   WsClient,
 } from "../types.js";
 import { WsRpcAdapter } from "../ws-rpc-adapter.js";
+import {
+  createStandaloneBridgeContext,
+  type StandaloneBridgeBackend,
+} from "./backend.js";
 
 export interface StartStandaloneBridgeOptions {
   cwd?: string;

@@ -82,9 +82,9 @@ function resolveTitleBarStyle(): DesktopTitleBarStyle {
   if (process.platform === "darwin") {
     return "hiddenInset";
   }
-  if (process.platform === "win32") {
-    return "overlay";
-  }
+
+  // Keep the native Windows title bar so caption buttons and snap behavior
+  // match the platform instead of relying on a custom overlay header.
   return "system";
 }
 

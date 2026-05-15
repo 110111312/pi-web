@@ -150,7 +150,8 @@
     display: flex;
     align-items: center;
     gap: 3px;
-    padding: 3px 10px;
+    min-height: 44px;
+    padding: 6px 10px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
     overflow-x: auto;
     scrollbar-width: none;

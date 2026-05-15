@@ -1,5 +1,4 @@
 import { dirname, join, resolve } from "node:path";
-import { createJiti } from "jiti/static";
 import { DEFAULT_BRIDGE_CONFIG as STATIC_DEFAULT_BRIDGE_CONFIG } from "../types.js";
 import type { BridgeConfig } from "../types.js";
 import { resolveStandaloneDevWatchPath } from "./dev-reload.js";
@@ -8,10 +7,6 @@ import {
   type StandaloneBridgeController,
   type StartStandaloneBridgeOptions,
 } from "./server.js";
-
-const jiti = createJiti(import.meta.url, {
-  moduleCache: false,
-});
 
 export interface StandaloneRuntime {
   DEFAULT_BRIDGE_CONFIG: BridgeConfig;
@@ -37,6 +32,12 @@ export async function loadStandaloneRuntime(
     dirname(resolve(entryFile)),
     "runtime-entry.ts",
   );
+
+  const jitiModuleId = ["jiti", "static"].join("/");
+  const { createJiti } = await import(jitiModuleId);
+  const jiti = createJiti(import.meta.url, {
+    moduleCache: false,
+  });
 
   return jiti.import(runtimeEntryPath, { default: true });
 }

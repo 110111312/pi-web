@@ -4,7 +4,6 @@ import {
   type BridgeConfig,
 } from "@pi-web/bridge/types";
 import type { WsRpcAdapterContext } from "@pi-web/bridge/ws-rpc-adapter";
-import { createJiti } from "jiti/static";
 import { resolveBridgeDevWatchPath } from "./dev-bridge-reload.js";
 import {
   startBridge as staticStartBridge,
@@ -12,10 +11,6 @@ import {
   type BridgeDoneCallback,
   type StartBridgeOptions,
 } from "./lifecycle.js";
-
-const jiti = createJiti(import.meta.url, {
-  moduleCache: false,
-});
 
 export interface BridgeRuntime {
   DEFAULT_BRIDGE_CONFIG: BridgeConfig;
@@ -43,6 +38,12 @@ export async function loadBridgeRuntime(
     dirname(resolve(extensionEntryFile)),
     "runtime-bridge-entry.ts",
   );
+
+  const jitiModuleId = ["jiti", "static"].join("/");
+  const { createJiti } = await import(jitiModuleId);
+  const jiti = createJiti(import.meta.url, {
+    moduleCache: false,
+  });
 
   return jiti.import(runtimeEntryPath, { default: true });
 }

@@ -51,7 +51,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "jiti": "^2.7.0",
     "ws": "^8.20.1"
   },
   "devDependencies": {
@@ -60,6 +59,7 @@
     "@pi-web/bridge": "workspace:*",
     "@types/node": "^25.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260413.1",
+    "jiti": "^2.7.0",
     "oxfmt": "^0.49.0",
     "oxlint": "^1.64.0",
     "tsdown": "^0.22.0",

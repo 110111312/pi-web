@@ -131,12 +131,6 @@
     isOpen = true;
     searchText = "";
     syncHighlightedIndex();
-    await tick();
-    if (repoState || loading) {
-      searchInputRef?.focus();
-    } else {
-      listRef?.focus();
-    }
     if (!repoState && !loading) {
       void ensureRepoState(true);
     } else {
@@ -270,9 +264,6 @@
     void repoState;
     if (!isOpen) return;
     syncHighlightedIndex();
-    void tick().then(() => {
-      if (repoState && !loading) searchInputRef?.focus();
-    });
     scrollToHighlighted();
   });
 </script>

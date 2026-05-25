@@ -823,8 +823,6 @@
 
     .composer-status-cluster {
       min-width: 0;
-      flex-wrap: nowrap;
-      overflow-x: auto;
       padding-bottom: 2px;
       scrollbar-width: none;
     }
@@ -855,7 +853,7 @@
 
     .attach-btn {
       width: 26px;
-      height: 26px;
+      height: 39px;
       margin-top: 0;
       border-radius: 10px;
     }

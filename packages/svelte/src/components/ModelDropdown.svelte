@@ -61,8 +61,6 @@
     isOpen = true;
     searchText = "";
     syncHighlightedIndex();
-    await tick();
-    searchInputRef?.focus();
     scrollToHighlighted();
   }
 

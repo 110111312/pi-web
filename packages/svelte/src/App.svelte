@@ -1579,5 +1579,9 @@
       grid-template-columns: 1fr;
       position: relative;
     }
+
+    .app-main-column {
+      flex: 1;
+    }
   }
 </style>

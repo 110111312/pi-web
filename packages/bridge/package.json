@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node ../../scripts/add-shebang.mjs",
     "check": "tsc --noEmit",
     "dev:standalone": "node --import jiti/register ./src/standalone/main.ts",
     "start:standalone": "node ../../dist/bridge/standalone/main.js",

@@ -18,6 +18,9 @@
     "README.md"
   ],
   "type": "module",
+  "bin": {
+    "pi-web": "./dist/bridge/standalone/main.js"
+  },
   "publishConfig": {
     "access": "public"
   },

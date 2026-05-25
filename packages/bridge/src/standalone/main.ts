@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DetachedSessionRegistry } from "../session-registry.js";
@@ -59,6 +59,7 @@ function resolveDefaultStaticDir(cwd: string): string | undefined {
   const candidates = [
     findNearestWebDist(cwd),
     findNearestWebDist(process.cwd()),
+    findNearestWebDist(dirname(fileURLToPath(import.meta.url))),
   ];
 
   for (const candidate of candidates) {
@@ -225,7 +226,7 @@ async function runStandaloneMain(): Promise<number> {
 
 const invokedPath = process.argv[1];
 const thisFile = fileURLToPath(import.meta.url);
-if (invokedPath && resolve(invokedPath) === resolve(thisFile)) {
+if (invokedPath && realpathSync(resolve(invokedPath)) === realpathSync(resolve(thisFile))) {
   runStandaloneMain().then(
     code => {
       process.exitCode = code;

@@ -1539,39 +1539,83 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 * (whole file when small). An empty name clears the title (matches the SDK's
 * getSessionName semantics). Returns undefined when no title is set.
 */
-function readLatestSessionInfoName(sessionPath, maxTailBytes = 1024 * 1024) {
+function readLatestSessionInfoName(sessionPath, maxTailBytes = 2 * 1024 * 1024) {
+	const tailResult = scanTailForLatestSessionInfo(sessionPath, maxTailBytes);
+	if (tailResult.found) return tailResult.name;
+	return readSessionInfoNameStream(sessionPath);
+}
+function scanTailForLatestSessionInfo(sessionPath, maxTailBytes) {
 	let fd = null;
 	try {
 		const size = fs.statSync(sessionPath).size;
-		if (size === 0) return void 0;
+		if (size === 0) return { found: false };
 		const tailSize = Math.min(size, maxTailBytes);
 		fd = fs.openSync(sessionPath, "r");
 		const buffer = Buffer.alloc(tailSize);
 		fs.readSync(fd, buffer, 0, tailSize, Math.max(0, size - tailSize));
 		const text = buffer.toString("utf8");
 		const firstNewline = text.indexOf("\n");
-		const body = firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+		return scanLinesForLatestSessionInfo(firstNewline >= 0 ? text.slice(firstNewline + 1) : text);
+	} catch {
+		return { found: false };
+	} finally {
+		if (fd !== null) fs.closeSync(fd);
+	}
+}
+function readSessionInfoNameStream(sessionPath) {
+	let fd = null;
+	try {
+		fd = fs.openSync(sessionPath, "r");
+		const BUF = 64 * 1024;
+		const buffer = Buffer.alloc(BUF);
+		let leftover = "";
 		let lastName = null;
-		for (const line of body.split("\n")) {
-			const trimmed = line.trim();
-			if (!trimmed) continue;
-			let parsed;
-			try {
-				parsed = JSON.parse(trimmed);
-			} catch {
-				continue;
-			}
-			if (parsed && typeof parsed === "object" && parsed.type === "session_info" && "name" in parsed) {
-				const value = parsed.name;
-				lastName = typeof value === "string" ? value : null;
+		while (true) {
+			const bytesRead = fs.readSync(fd, buffer, 0, BUF, null);
+			if (bytesRead === 0) break;
+			const lines = (leftover + buffer.toString("utf8", 0, bytesRead)).split("\n");
+			leftover = lines.pop() ?? "";
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed) continue;
+				let parsed = null;
+				try {
+					parsed = JSON.parse(trimmed);
+				} catch {
+					continue;
+				}
+				if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
 			}
 		}
+		const tail = leftover.trim();
+		if (tail) try {
+			const parsed = JSON.parse(tail);
+			if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
+		} catch {}
 		return lastName ? lastName.trim() || void 0 : void 0;
 	} catch {
 		return;
 	} finally {
 		if (fd !== null) fs.closeSync(fd);
 	}
+}
+function scanLinesForLatestSessionInfo(text) {
+	let lastName = null;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		let parsed = null;
+		try {
+			parsed = JSON.parse(trimmed);
+		} catch {
+			continue;
+		}
+		if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
+	}
+	return {
+		found: lastName !== null,
+		name: lastName ? lastName.trim() || void 0 : void 0
+	};
 }
 function normalizeWorkspacePath(filePath) {
 	return filePath.split(path.sep).join("/");

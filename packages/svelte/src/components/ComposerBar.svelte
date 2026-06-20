@@ -352,6 +352,7 @@
             class:checked={autoCompactionEnabled}
             disabled={composer.isDisabled}
             aria-pressed={autoCompactionEnabled}
+            title="Auto compact"
             onclick={composer.handleAutoCompactionToggle}
           >
             <span class="toggle-chip-icon" aria-hidden="true">
@@ -860,6 +861,11 @@
 
     .prompt-input { padding: 5px 0 6px; line-height: 1.5; }
     .composer-footer-row { gap: 8px; padding-top: 8px; }
+
+    /* Keep the footer on a single line on phones: collapse the Auto compact
+       toggle to an icon-only chip (its checked state is shown by the icon). */
+    .toggle-chip { gap: 0; padding: 0 7px; }
+    .toggle-chip-label { display: none; }
 
     .send-btn { width: 32px; height: 32px; border-radius: 10px; }
   }

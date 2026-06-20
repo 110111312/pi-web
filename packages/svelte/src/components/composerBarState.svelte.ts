@@ -657,6 +657,11 @@ export function createComposerBarState(
 
   // ---- keyboard / composition ----
 
+  function isCoarsePointer(): boolean {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(pointer: coarse)").matches;
+  }
+
   function isInputComposing(event: KeyboardEvent): boolean {
     return event.isComposing || isComposing || event.keyCode === 229;
   }
@@ -736,8 +741,11 @@ export function createComposerBarState(
     }
 
     // Enter → submit / steer
+    // On touch/coarse-pointer devices (phones/tablets), Enter inserts a
+    // newline instead of submitting; the Send button is used to submit.
     if (e.key === "Enter") {
       if (composing || e.shiftKey) return;
+      if (isCoarsePointer()) return;
       e.preventDefault();
       const isSteer = typeof steer === "function" ? steer() : steer;
       handleSubmit(isSteer);

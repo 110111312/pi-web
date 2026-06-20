@@ -657,16 +657,43 @@ function listRegisteredWorkspaces(): RegisteredWorkspace[] {
   const workspaces: RegisteredWorkspace[] = [];
   for (const entry of fs.readdirSync(sessionsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    const sessionDir = path.join(sessionsRoot, entry.name);
+    // Prefer the real workspace path recorded in a session file header. The
+    // directory name is encoded from the workspace path by replacing
+    // "/\:" with "-", which is lossy on Windows (the drive-letter colon and
+    // path separators all collapse to "-"). Decoding it cannot reconstruct
+    // "C:\Users\Admin" and yields a bogus path that differs from the live
+    // session manager's cwd, which then shows up as a duplicate workspace.
+    const resolvedWorkspacePath =
+      resolveWorkspacePathFromSessionDir(sessionDir);
     const workspacePath = normalizeOptionalWorkspaceRoot(
-      decodeWorkspaceSessionDirName(entry.name),
+      resolvedWorkspacePath ?? decodeWorkspaceSessionDirName(entry.name),
     );
     if (!workspacePath) continue;
     workspaces.push({
       workspacePath,
-      sessionDir: path.join(sessionsRoot, entry.name),
+      sessionDir,
     });
   }
   return workspaces;
+}
+
+function resolveWorkspacePathFromSessionDir(
+  sessionDir: string,
+): string | null {
+  try {
+    const files = fs
+      .readdirSync(sessionDir)
+      .filter(file => file.endsWith(".jsonl"));
+    for (const file of files) {
+      const header = readSessionFileHeader(path.join(sessionDir, file));
+      const cwd = normalizeOptionalWorkspaceRoot(header?.cwd);
+      if (cwd) return cwd;
+    }
+  } catch {
+    // Ignore unreadable session directories.
+  }
+  return null;
 }
 
 function workspaceSummary(
@@ -3292,7 +3319,13 @@ class SessionRuntime {
     }
 
     if (this.selectedSessionPath) {
-      await this.registry.releaseViewer(
+      // Release the previous viewer without blocking the switch. Rebinding the
+      // previous (possibly streaming) session's extensions to a headless UI
+      // context awaits extension handlers that can be slow while a generation
+      // is in flight; that must not stall switching/creating sessions. The
+      // viewer binding is cleared synchronously inside releaseViewer, so the
+      // previous session stops receiving this client's UI context immediately.
+      void this.registry.releaseViewer(
         this.selectedSessionPath,
         this.clientId,
       );

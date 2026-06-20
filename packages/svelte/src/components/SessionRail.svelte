@@ -4,6 +4,7 @@
   import ChevronRight from "lucide-svelte/icons/chevron-right";
   import Folder from "lucide-svelte/icons/folder";
   import FolderOpen from "lucide-svelte/icons/folder-open";
+  import Pencil from "lucide-svelte/icons/pencil";
   import Plus from "lucide-svelte/icons/plus";
   import Search from "lucide-svelte/icons/search";
   import Trash2 from "lucide-svelte/icons/trash-2";
@@ -23,6 +24,7 @@
     workspaceSessionCursors = {} as Readonly<Record<string, string | null>>,
     onSelect = (_: string) => {},
     onDelete = (_: string) => {},
+    onRename = (_: string, _name: string) => {},
     onNewSession = (_: string) => {},
     onExpandWorkspace = (_: string) => {},
     onLoadOlderSessions = (_: {
@@ -41,6 +43,7 @@
     workspaceSessionCursors?: Readonly<Record<string, string | null>>;
     onSelect?: (sessionPath: string) => void;
     onDelete?: (sessionPath: string) => void;
+    onRename?: (sessionPath: string, name: string) => void;
     onNewSession?: (workspacePath: string) => void;
     onExpandWorkspace?: (workspacePath: string) => void;
     onLoadOlderSessions?: (payload: {
@@ -52,7 +55,7 @@
 
   const RECENT_SESSION_LIMIT = 5;
   const MENU_WIDTH = 136;
-  const MENU_HEIGHT = 44;
+  const MENU_HEIGHT = 88;
   const WORKSPACE_FOLDER_ICON_SIZE = 14;
   const WORKSPACE_FOLDER_ICON_STYLE = "display: block; flex-shrink: 0;";
 
@@ -219,6 +222,23 @@
     closeMenu();
     if (!confirm("Delete this session? This cannot be undone.")) return;
     onDelete(sessionPath);
+  }
+
+  function findSessionName(sessionPath: string): string {
+    for (const entries of Object.values(workspaceSessions)) {
+      const session = entries.find(entry => entry.path === sessionPath);
+      if (session) return session.name;
+    }
+    return "";
+  }
+
+  function handleRename(sessionPath: string) {
+    closeMenu();
+    const next = window.prompt("Rename session", findSessionName(sessionPath));
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed) return;
+    onRename(sessionPath, trimmed);
   }
 
   function handleSessionSelect(sessionPath: string, closeModal = false) {
@@ -495,6 +515,14 @@
     }}
   >
     <div class="menu-panel show" style={menuPanelStyle} role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+      <button
+        class="menu-item"
+        type="button"
+        onclick={() => menu.sessionPath && handleRename(menu.sessionPath)}
+      >
+        <Pencil aria-hidden="true" size={13} style="opacity: 0.7; flex-shrink: 0" />
+        <span>Rename</span>
+      </button>
       <button
         class="menu-item danger"
         type="button"

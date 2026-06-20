@@ -32,6 +32,7 @@
     }) => {},
     onNewSession = (_: string) => {},
     onDeleteSession = (_: string) => {},
+    onRenameSession = (_: string, _name: string) => {},
   }: {
     workspaces: readonly WorkspaceSummary[];
     workspaceSessions: Readonly<Record<string, readonly SessionEntry[]>>;
@@ -54,6 +55,7 @@
     }) => void;
     onNewSession?: (workspacePath: string) => void;
     onDeleteSession?: (sessionPath: string) => void;
+    onRenameSession?: (sessionPath: string, name: string) => void;
   } = $props();
 </script>
 
@@ -70,6 +72,7 @@
     onSelect={(sp: string) => onSelectSession(sp)}
     onExpandWorkspace={(wp: string) => onExpandWorkspace(wp)}
     onDelete={(sp: string) => onDeleteSession(sp)}
+    onRename={(sp: string, name: string) => onRenameSession(sp, name)}
     onNewSession={(wp: string) => onNewSession(wp)}
     onLoadOlderSessions={(e: { workspacePath: string; cursor?: string | null }) => onLoadOlderSessions(e)}
   >

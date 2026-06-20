@@ -1028,16 +1028,70 @@ function readWorkspaceSessionSummary(
   const timestamp = normalizeSessionTimestamp(header.timestamp);
   const workspace = workspaceMetadata(header.cwd, sessionPath);
   const firstUserMessage = findFirstUserMessageText(prefix);
+  // Prefer an explicit session title (set via /name or the rename action) over
+  // the first user message. session_info entries are appended at the end of the
+  // file, so scan the file tail for the latest one.
+  const explicitName = readLatestSessionInfoName(sessionPath);
 
   return {
     id: header.id,
-    name: firstUserMessage ?? DEFAULT_PENDING_SESSION_NAME,
+    name: explicitName ?? firstUserMessage ?? DEFAULT_PENDING_SESSION_NAME,
     path: sessionPath,
     isRunning: running,
     timestamp,
     updatedAt: timestamp,
     ...workspace,
   };
+}
+
+/**
+ * Find the name from the latest `session_info` entry in a session file.
+ * `session_info` entries are appended at the end, so read a tail of the file
+ * (whole file when small). An empty name clears the title (matches the SDK's
+ * getSessionName semantics). Returns undefined when no title is set.
+ */
+function readLatestSessionInfoName(
+  sessionPath: string,
+  maxTailBytes = 1024 * 1024,
+): string | undefined {
+  let fd: number | null = null;
+  try {
+    const size = fs.statSync(sessionPath).size;
+    if (size === 0) return undefined;
+    const tailSize = Math.min(size, maxTailBytes);
+    fd = fs.openSync(sessionPath, "r");
+    const buffer = Buffer.alloc(tailSize);
+    fs.readSync(fd, buffer, 0, tailSize, Math.max(0, size - tailSize));
+    // Drop a potentially partial first line so JSON.parse stays whole-record.
+    const text = buffer.toString("utf8");
+    const firstNewline = text.indexOf("\n");
+    const body = firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+    let lastName: string | null = null;
+    for (const line of body.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        (parsed as { type?: unknown }).type === "session_info" &&
+        "name" in (parsed as Record<string, unknown>)
+      ) {
+        const value = (parsed as { name?: unknown }).name;
+        lastName = typeof value === "string" ? value : null;
+      }
+    }
+    return lastName ? lastName.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
 }
 
 function normalizeWorkspacePath(filePath: string): string {
@@ -2526,6 +2580,9 @@ function sessionDisplayName(
   },
   _sessionPath?: string,
 ): string {
+  const explicitName = sessionManager.getSessionName()?.trim();
+  if (explicitName) return explicitName;
+
   const firstUserEntry = sessionManager.getEntries().find(entry => {
     if (
       typeof entry === "object" &&
@@ -5175,7 +5232,48 @@ export class WsRpcAdapter {
             error: "Session name cannot be empty",
           };
         }
-        this.context.actions.setSessionName(name);
+        const sessionPath =
+          (command.sessionPath as string | undefined)?.trim() || null;
+
+        if (sessionPath) {
+          // Rename a specific session from the sidebar.
+          if (!fs.existsSync(sessionPath)) {
+            return {
+              id: correlationId,
+              type: "response",
+              command: "set_session_name",
+              success: false,
+              error: "Session file not found",
+            };
+          }
+          const activeSession = this.sessionRuntime.getDetachedSession();
+          if (
+            activeSession &&
+            this.sessionRuntime.currentDetachedSessionPath() === sessionPath
+          ) {
+            // Active detached session: rename through the live agent session so
+            // its in-memory state and emitted events stay in sync.
+            activeSession.setSessionName(name);
+          } else {
+            const manager =
+              this.sessionRuntime.getCachedSessionManager(sessionPath) ??
+              openSessionManager(sessionPath);
+            manager.appendSessionInfo(name);
+          }
+        } else {
+          // No path: rename the currently selected/live session.
+          if (this.sessionRuntime.hasDetachedSelection()) {
+            const session = await this.sessionRuntime.ensureDetachedSession();
+            session.setSessionName(name);
+          } else {
+            this.context.actions.setSessionName(name);
+          }
+        }
+
+        this.sendSelectedSessionQueueUpdate();
+        this.sessionStatsPusher.queue(
+          this.sessionRuntime.currentTranscriptSessionPath(),
+        );
         return {
           id: correlationId,
           type: "response",

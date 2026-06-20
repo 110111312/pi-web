@@ -2030,6 +2030,63 @@ export async function deleteSession(sessionPath: string): Promise<RpcResponse> {
   return resp;
 }
 
+export async function setSessionName(
+  sessionPath: string,
+  name: string,
+): Promise<RpcResponse> {
+  const resp = await sendCommand({
+    type: "set_session_name",
+    name,
+    sessionPath,
+  });
+  if (resp.success) {
+    // Reflect the new name immediately in the active session header.
+    if (_sessionState?.sessionFile === sessionPath) {
+      _sessionState = { ..._sessionState, sessionName: name };
+    }
+    // Update the sidebar entry locally, then reload the workspace so the
+    // persisted name (read from the session file) replaces it.
+    updateSessionNameInWorkspaceSessions(sessionPath, name);
+    const workspacePath = findWorkspacePathForSession(sessionPath);
+    if (workspacePath) {
+      void loadWorkspaceSessions({
+        workspacePath,
+        limit: 5,
+        merge: "replace",
+      }).catch(() => {});
+    }
+  }
+  return resp;
+}
+
+function findWorkspacePathForSession(sessionPath: string): string | null {
+  for (const [workspacePath, entries] of Object.entries(_workspaceSessions)) {
+    if (entries.some(entry => entry.path === sessionPath)) {
+      return workspacePath;
+    }
+  }
+  return null;
+}
+
+function updateSessionNameInWorkspaceSessions(
+  sessionPath: string,
+  name: string,
+) {
+  let changed = false;
+  const nextSessions: Record<string, SessionEntry[]> = {};
+  for (const [workspacePath, entries] of Object.entries(_workspaceSessions)) {
+    if (entries.some(entry => entry.path === sessionPath)) {
+      nextSessions[workspacePath] = entries.map(entry =>
+        entry.path === sessionPath ? { ...entry, name } : entry,
+      );
+      changed = true;
+    } else {
+      nextSessions[workspacePath] = entries;
+    }
+  }
+  if (changed) _workspaceSessions = nextSessions;
+}
+
 export function respondToUIRequest(payload: RpcExtensionUIResponse) {
   _pendingExtensionRequest = null;
   sendEnvelope({ type: "extension_ui_response", payload });
@@ -2699,6 +2756,7 @@ export function initBridge() {
     setThinkingLevel,
     setAutoCompactionEnabled,
     deleteSession,
+    setSessionName,
     cancelQueuedMessage,
     editQueuedMessage,
     respondToUIRequest,

@@ -280,7 +280,7 @@ export interface RpcCommandMap {
 
   /** Session */
   export_html: { outputPath?: string };
-  set_session_name: { name: string };
+  set_session_name: { name: string; sessionPath?: string };
   switch_session: { sessionPath: string; limit?: number };
   select_tree_entry: { entryId: string };
   navigate_tree: {

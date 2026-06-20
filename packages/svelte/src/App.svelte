@@ -881,6 +881,14 @@
     }
   }
 
+  async function handleRenameSession(sessionPath: string, name: string) {
+    try {
+      await bridge.setSessionName(sessionPath, name);
+    } catch {
+      // Ignore
+    }
+  }
+
   function toggleOutlineSidebar() {
     const nextOpen = !outlineSidebarOpen;
     outlineSidebarOpen = nextOpen;
@@ -1341,6 +1349,7 @@
     onLoadOlderSessions={handleLoadOlderSessions}
     onNewSession={handleNewSession}
     onDeleteSession={handleDeleteSession}
+    onRenameSession={handleRenameSession}
   />
 
   {#if showLeftRailResizer}

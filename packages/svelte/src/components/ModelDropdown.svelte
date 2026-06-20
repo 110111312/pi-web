@@ -146,10 +146,6 @@
     if (!rootRef?.contains(target)) closeDropdown();
   }
 
-  function tick(): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, 0));
-  }
-
   $effect(() => {
     if (typeof document === "undefined") return;
     if (isOpen) {

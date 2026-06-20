@@ -2424,7 +2424,12 @@ function buildStateFromStoredSession(
     workspacePath,
     ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
     gitBranch: getCurrentGitBranch(workspacePath),
-    autoCompactionEnabled: false,
+    // The SDK defaults auto-compaction to enabled (SettingsManager returns
+    // `compaction?.enabled ?? true`). Stored sessions don't carry a live
+    // settings manager here, so reflect that default instead of falsely
+    // reporting off (which made the toggle always look disabled for old
+    // sessions). The active-session path reads the real value.
+    autoCompactionEnabled: true,
     messageCount: sessionManager.getEntries()?.length ?? 0,
     pendingMessageCount: 0,
   };
@@ -3168,7 +3173,9 @@ class SessionRuntime {
       workspacePath: normalizeOptionalWorkspaceRoot(this.context.state.cwd),
       ...(workspaceEnvironments ? { workspaceEnvironments } : {}),
       gitBranch: getCurrentGitBranch(this.context.state.cwd),
-      autoCompactionEnabled: false,
+      // SDK default: auto-compaction is on. The live-session state interface
+      // doesn't expose the setting, so report the default rather than false.
+      autoCompactionEnabled: true,
       messageCount: this.context.state.sessionManager.getEntries()?.length ?? 0,
       pendingMessageCount: this.context.state.hasPendingMessages() ? 1 : 0,
     };

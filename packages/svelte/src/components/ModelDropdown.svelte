@@ -25,6 +25,7 @@
   let isOpen = $state(false);
   let searchText = $state("");
   let highlightedIndex = $state(0);
+  let menuStyle = $state("");
 
   let hasModels = $derived(models.length > 0);
   let selectedKey = $derived(
@@ -61,7 +62,26 @@
     isOpen = true;
     searchText = "";
     syncHighlightedIndex();
+    positionMenu();
     scrollToHighlighted();
+  }
+
+  /**
+   * Center the menu horizontally in the viewport and anchor it just above the
+   * trigger. Using position: fixed escapes any ancestor overflow clipping and
+   * keeps the menu from overflowing/pushing the layout when the trigger sits
+   * after the branch dropdown (or near a screen edge).
+   */
+  function positionMenu() {
+    if (!rootRef || typeof window === "undefined") {
+      menuStyle = "";
+      return;
+    }
+    const rect = rootRef.getBoundingClientRect();
+    const top = Math.round(rect.top);
+    menuStyle =
+      `position: fixed; left: 50%; transform: translateX(-50%);` +
+      ` bottom: calc(100vh - ${top}px + 10px); z-index: 50;`;
   }
 
   function closeDropdown() {
@@ -140,6 +160,18 @@
   });
 
   $effect(() => {
+    if (typeof window === "undefined") return;
+    if (!isOpen) return;
+    const reposition = () => positionMenu();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("orientationchange", reposition);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("orientationchange", reposition);
+    };
+  });
+
+  $effect(() => {
     void searchText;
     highlightedIndex = 0;
     scrollToHighlighted();
@@ -174,7 +206,7 @@
   </button>
 
   {#if isOpen}
-    <div class="model-menu">
+    <div class="model-menu" style={menuStyle}>
       <label class="model-search">
         <Search aria-hidden="true" size={13} style="flex-shrink: 0; color: var(--text-subtle)" />
         <input

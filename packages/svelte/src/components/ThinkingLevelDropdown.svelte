@@ -191,7 +191,6 @@
     onclick={toggleDropdown}
     onkeydown={handleTriggerKeydown}
   >
-    <span class="thinking-trigger-label" aria-hidden="true">Thinking</span>
     <span class="thinking-trigger-value">{selectedLabel}</span>
     <ChevronDown aria-hidden="true" size={11} style="flex-shrink: 0; color: var(--text-subtle)" />
   </button>
@@ -276,16 +275,6 @@
   .thinking-trigger:disabled {
     opacity: 0.45;
     cursor: not-allowed;
-  }
-
-  .thinking-trigger-label {
-    display: inline-flex;
-    align-items: center;
-    color: var(--text-subtle);
-    font-family: var(--pi-font-sans);
-    font-size: 0.64rem;
-    line-height: 1.2;
-    white-space: nowrap;
   }
 
   .thinking-trigger-value {

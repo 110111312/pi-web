@@ -1052,38 +1052,83 @@ function readWorkspaceSessionSummary(
  */
 function readLatestSessionInfoName(
   sessionPath: string,
-  maxTailBytes = 1024 * 1024,
+  maxTailBytes = 2 * 1024 * 1024,
 ): string | undefined {
+  // Fast path: the latest session_info is appended at the end of the file, so
+  // for most sessions it sits in the tail. If the tail contains a session_info
+  // at all, it is by definition the most recent one and we can return it.
+  const tailResult = scanTailForLatestSessionInfo(sessionPath, maxTailBytes);
+  if (tailResult.found) {
+    return tailResult.name;
+  }
+  // No session_info in the tail: the latest rename (if any) is older than the
+  // tail window. Stream-scan the whole file so we still pick it up. This is
+  // the slow path; it only runs when the fast path could not locate the entry.
+  return readSessionInfoNameStream(sessionPath);
+}
+
+function scanTailForLatestSessionInfo(
+  sessionPath: string,
+  maxTailBytes: number,
+): { found: boolean; name?: string } {
   let fd: number | null = null;
   try {
     const size = fs.statSync(sessionPath).size;
-    if (size === 0) return undefined;
+    if (size === 0) return { found: false };
     const tailSize = Math.min(size, maxTailBytes);
     fd = fs.openSync(sessionPath, "r");
     const buffer = Buffer.alloc(tailSize);
     fs.readSync(fd, buffer, 0, tailSize, Math.max(0, size - tailSize));
-    // Drop a potentially partial first line so JSON.parse stays whole-record.
     const text = buffer.toString("utf8");
+    // Drop a potentially partial first line so JSON.parse stays whole-record.
     const firstNewline = text.indexOf("\n");
     const body = firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+    return scanLinesForLatestSessionInfo(body);
+  } catch {
+    return { found: false };
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+function readSessionInfoNameStream(sessionPath: string): string | undefined {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(sessionPath, "r");
+    const BUF = 64 * 1024;
+    const buffer = Buffer.alloc(BUF);
+    let leftover = "";
     let lastName: string | null = null;
-    for (const line of body.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
-        continue;
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, BUF, null);
+      if (bytesRead === 0) break;
+      const chunk = leftover + buffer.toString("utf8", 0, bytesRead);
+      const lines = chunk.split("\n");
+      leftover = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let parsed: { type?: unknown; name?: unknown } | null = null;
+        try {
+          parsed = JSON.parse(trimmed) as { type?: unknown; name?: unknown };
+        } catch {
+          continue;
+        }
+        if (parsed && parsed.type === "session_info") {
+          lastName = typeof parsed.name === "string" ? parsed.name : null;
+        }
       }
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        (parsed as { type?: unknown }).type === "session_info" &&
-        "name" in (parsed as Record<string, unknown>)
-      ) {
-        const value = (parsed as { name?: unknown }).name;
-        lastName = typeof value === "string" ? value : null;
+    }
+    // Handle a final line that has no trailing newline.
+    const tail = leftover.trim();
+    if (tail) {
+      try {
+        const parsed = JSON.parse(tail) as { type?: unknown; name?: unknown };
+        if (parsed && parsed.type === "session_info") {
+          lastName = typeof parsed.name === "string" ? parsed.name : null;
+        }
+      } catch {
+        /* ignore */
       }
     }
     return lastName ? lastName.trim() || undefined : undefined;
@@ -1091,6 +1136,29 @@ function readLatestSessionInfoName(
     return undefined;
   } finally {
     if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+function scanLinesForLatestSessionInfo(
+  text: string,
+): { found: boolean; name?: string } {
+  let lastName: string | null = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let parsed: { type?: unknown; name?: unknown } | null = null;
+    try {
+      parsed = JSON.parse(trimmed) as { type?: unknown; name?: unknown };
+    } catch {
+      continue;
+    }
+    if (parsed && parsed.type === "session_info") {
+      lastName = typeof parsed.name === "string" ? parsed.name : null;
+    }
+  }
+  return {
+    found: lastName !== null,
+    name: lastName ? lastName.trim() || undefined : undefined,
   }
 }
 

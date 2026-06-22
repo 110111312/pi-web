@@ -505,14 +505,99 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 	const timestamp = normalizeSessionTimestamp(header.timestamp);
 	const workspace = workspaceMetadata(header.cwd, sessionPath);
 	const firstUserMessage = findFirstUserMessageText(prefix);
+	const explicitName = readLatestSessionInfoName(sessionPath);
 	return {
 		id: header.id,
-		name: firstUserMessage ?? DEFAULT_PENDING_SESSION_NAME,
+		name: explicitName ?? firstUserMessage ?? DEFAULT_PENDING_SESSION_NAME,
 		path: sessionPath,
 		isRunning: running,
 		timestamp,
 		updatedAt: timestamp,
 		...workspace
+	};
+}
+/**
+* Find the name from the latest `session_info` entry in a session file.
+* `session_info` entries are appended at the end, so read a tail of the file
+* (whole file when small). An empty name clears the title (matches the SDK's
+* getSessionName semantics). Returns undefined when no title is set.
+*/
+function readLatestSessionInfoName(sessionPath, maxTailBytes = 2 * 1024 * 1024) {
+	const tailResult = scanTailForLatestSessionInfo(sessionPath, maxTailBytes);
+	if (tailResult.found) return tailResult.name;
+	return readSessionInfoNameStream(sessionPath);
+}
+function scanTailForLatestSessionInfo(sessionPath, maxTailBytes) {
+	let fd = null;
+	try {
+		const size = fs.statSync(sessionPath).size;
+		if (size === 0) return { found: false };
+		const tailSize = Math.min(size, maxTailBytes);
+		fd = fs.openSync(sessionPath, "r");
+		const buffer = Buffer.alloc(tailSize);
+		fs.readSync(fd, buffer, 0, tailSize, Math.max(0, size - tailSize));
+		const text = buffer.toString("utf8");
+		const firstNewline = text.indexOf("\n");
+		return scanLinesForLatestSessionInfo(firstNewline >= 0 ? text.slice(firstNewline + 1) : text);
+	} catch {
+		return { found: false };
+	} finally {
+		if (fd !== null) fs.closeSync(fd);
+	}
+}
+function readSessionInfoNameStream(sessionPath) {
+	let fd = null;
+	try {
+		fd = fs.openSync(sessionPath, "r");
+		const BUF = 64 * 1024;
+		const buffer = Buffer.alloc(BUF);
+		let leftover = "";
+		let lastName = null;
+		while (true) {
+			const bytesRead = fs.readSync(fd, buffer, 0, BUF, null);
+			if (bytesRead === 0) break;
+			const lines = (leftover + buffer.toString("utf8", 0, bytesRead)).split("\n");
+			leftover = lines.pop() ?? "";
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed) continue;
+				let parsed = null;
+				try {
+					parsed = JSON.parse(trimmed);
+				} catch {
+					continue;
+				}
+				if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
+			}
+		}
+		const tail = leftover.trim();
+		if (tail) try {
+			const parsed = JSON.parse(tail);
+			if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
+		} catch {}
+		return lastName ? lastName.trim() || void 0 : void 0;
+	} catch {
+		return;
+	} finally {
+		if (fd !== null) fs.closeSync(fd);
+	}
+}
+function scanLinesForLatestSessionInfo(text) {
+	let lastName = null;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		let parsed = null;
+		try {
+			parsed = JSON.parse(trimmed);
+		} catch {
+			continue;
+		}
+		if (parsed && parsed.type === "session_info") lastName = typeof parsed.name === "string" ? parsed.name : null;
+	}
+	return {
+		found: lastName !== null,
+		name: lastName ? lastName.trim() || void 0 : void 0
 	};
 }
 function normalizeWorkspacePath(filePath) {
@@ -1314,7 +1399,7 @@ function buildStateFromStoredSession(sessionManager, fallbackCwd) {
 		workspacePath,
 		...workspaceEnvironments ? { workspaceEnvironments } : {},
 		gitBranch: getCurrentGitBranch(workspacePath),
-		autoCompactionEnabled: false,
+		autoCompactionEnabled: true,
 		messageCount: sessionManager.getEntries()?.length ?? 0,
 		pendingMessageCount: 0
 	};
@@ -1359,6 +1444,8 @@ function summarizeTokenUsage(branch, entries) {
 	};
 }
 function sessionDisplayName(sessionManager, _sessionPath) {
+	const explicitName = sessionManager.getSessionName()?.trim();
+	if (explicitName) return explicitName;
 	const firstUserEntry = sessionManager.getEntries().find((entry) => {
 		if (typeof entry === "object" && entry !== null && "type" in entry && entry.type === "message" && "message" in entry) return entry.message.role === "user";
 		if (typeof entry === "object" && entry !== null && "role" in entry) return entry.role === "user";
@@ -1657,7 +1744,7 @@ var SessionRuntime = class {
 			workspacePath: normalizeOptionalWorkspaceRoot(this.context.state.cwd),
 			...workspaceEnvironments ? { workspaceEnvironments } : {},
 			gitBranch: getCurrentGitBranch(this.context.state.cwd),
-			autoCompactionEnabled: false,
+			autoCompactionEnabled: true,
 			messageCount: this.context.state.sessionManager.getEntries()?.length ?? 0,
 			pendingMessageCount: this.context.state.hasPendingMessages() ? 1 : 0
 		};
@@ -2912,7 +2999,22 @@ var WsRpcAdapter = class {
 					success: false,
 					error: "Session name cannot be empty"
 				};
-				this.context.actions.setSessionName(name);
+				const sessionPath = command.sessionPath?.trim() || null;
+				if (sessionPath) {
+					if (!fs.existsSync(sessionPath)) return {
+						id: correlationId,
+						type: "response",
+						command: "set_session_name",
+						success: false,
+						error: "Session file not found"
+					};
+					const activeSession = this.sessionRuntime.getDetachedSession();
+					if (activeSession && this.sessionRuntime.currentDetachedSessionPath() === sessionPath) activeSession.setSessionName(name);
+					else (this.sessionRuntime.getCachedSessionManager(sessionPath) ?? openSessionManager(sessionPath)).appendSessionInfo(name);
+				} else if (this.sessionRuntime.hasDetachedSelection()) (await this.sessionRuntime.ensureDetachedSession()).setSessionName(name);
+				else this.context.actions.setSessionName(name);
+				this.sendSelectedSessionQueueUpdate();
+				this.sessionStatsPusher.queue(this.sessionRuntime.currentTranscriptSessionPath());
 				return {
 					id: correlationId,
 					type: "response",

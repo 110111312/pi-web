@@ -2245,7 +2245,7 @@ function handleResponse(payload: RpcResponse) {
         const data = payload.data as
           | Parameters<typeof applySessionSnapshotResponse>[0]
           | undefined;
-        if (!applySessionSnapshotResponse(data)) {
+        if (!applySessionSnapshotResponse(data, { refreshState: true })) {
           replaceTranscript([], null);
           _transcriptHasOlder = false;
           _transcriptOldestCursor = null;

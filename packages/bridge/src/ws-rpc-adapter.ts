@@ -5727,8 +5727,19 @@ export class WsRpcAdapter {
             sessionManager: SessionListManager,
             sessionPath?: string,
             fallbackWorkspacePath?: string,
+            options?: { requireOnDisk?: boolean },
           ) => {
-            if (!sessionPath || !fs.existsSync(sessionPath)) return;
+            if (!sessionPath) return;
+            // Cached in-memory session managers may not have flushed their
+            // header to disk yet (a freshly created new session has its file
+            // path set but not yet written). Read the header from the manager
+            // directly so the sidebar updates immediately on new_session
+            // instead of requiring a refresh. Disk-backed callers (e.g. the
+            // listWorkspaceSessionFiles loop) can opt back into the
+            // existence check via options.requireOnDisk.
+            if (options?.requireOnDisk !== false && !fs.existsSync(sessionPath)) {
+              return;
+            }
             const header = sessionManager.getHeader();
             if (!header) return;
 
@@ -5768,10 +5779,14 @@ export class WsRpcAdapter {
               this.context.state.cwd,
             );
             for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) {
+              // Cached detached managers (including freshly created new
+              // sessions whose file has not yet been flushed to disk) should
+              // still appear in the sidebar.
               appendSessionManager(
                 sessionManager,
                 sessionManager.getSessionFile(),
                 this.context.state.cwd,
+                { requireOnDisk: false },
               );
             }
           }

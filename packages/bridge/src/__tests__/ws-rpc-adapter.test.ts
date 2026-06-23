@@ -2561,7 +2561,7 @@ describe("WsRpcAdapter", () => {
       expect(response.payload.error).toBe("workspacePath is required");
     });
 
-    it("omits a pending new session from list_sessions until it is stored", async () => {
+    it("includes a pending new session from a cached manager before it is stored to disk", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-pending-"));
       const sessionDir = path.join(
         process.env.PI_WEB_SESSIONS_ROOT!,
@@ -2610,6 +2610,11 @@ describe("WsRpcAdapter", () => {
       const newSessionCommand: RpcCommand = {
         id: "cmd-new",
         type: "new_session",
+        // Provide a workspacePath so the new session is created with the
+        // same cwd as the live session. Otherwise the workspace filter
+        // would exclude the new (cached) manager from the response and the
+        // assertion below would not exercise the new code path.
+        workspacePath: tmpDir,
       };
       (
         ws as unknown as { trigger: (event: string, data: Buffer) => void }
@@ -2637,16 +2642,43 @@ describe("WsRpcAdapter", () => {
       await new Promise(r => setTimeout(r, 10));
 
       const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
-      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
-      const response = JSON.parse(lastCall);
+      const newSessionResponses = sendCalls
+        .map(call => JSON.parse(call[0] as string))
+        .filter(
+          call =>
+            call.type === "response" &&
+            call.payload.command === "new_session" &&
+            call.payload.success,
+        );
+      const newSessionResponse = newSessionResponses.at(-1);
+      const pendingSessionPath: string | undefined =
+        newSessionResponse?.payload.data.sessionPath;
+      expect(typeof pendingSessionPath).toBe("string");
+      // The new session file is not yet flushed to disk by the time
+      // list_sessions runs. The sidebar should still surface it because
+      // the in-memory SessionManager already holds the header.
+      expect(fs.existsSync(pendingSessionPath as string)).toBe(false);
 
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.data.sessions).toEqual([
-        expect.objectContaining({
-          id: "live-id",
-          path: liveSessionFile,
-        }),
-      ]);
+      const listResponses = sendCalls
+        .map(call => JSON.parse(call[0] as string))
+        .filter(
+          call => call.type === "response" && call.payload.command === "list_sessions",
+        );
+      const listResponse = listResponses.at(-1);
+
+      expect(listResponse.payload.success).toBe(true);
+      const sessions = listResponse.payload.data.sessions as Array<{
+        id: string;
+        path: string;
+      }>;
+      // Both the live session (read from disk) and the new pending session
+      // (read from the cached in-memory manager) are returned.
+      expect(sessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "live-id", path: liveSessionFile }),
+          expect.objectContaining({ path: pendingSessionPath }),
+        ]),
+      );
 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });

@@ -107,4 +107,38 @@ This will pull the new session's model, thinking level, etc. into
 pressing New session. The model picker in the composer header is bound to
 `_currentModel` and `set_model` calls go to the currently selected
 detached session, so re-selecting the displayed model will re-set it on
-the new session and align the two.
+the new session and align the two. *(Fixed: `case "new_session"` now
+passes `{ refreshState: true }` to `applySessionSnapshotResponse` to
+mirror `case "switch_session"`.)*
+
+## New session not visible in sidebar without refresh
+
+**Status:** bug confirmed, fix applied.
+
+**Symptom.** After pressing "New session", the new session does NOT appear
+in the workspace's session list in the sidebar until the user refreshes
+the web UI.
+
+**Reproduction.**
+1. Open the web UI.
+2. Press "New session".
+3. Look at the sidebar — the new session is missing until refresh.
+
+**Root cause.** In `packages/bridge/src/ws-rpc-adapter.ts`, the
+`appendSessionManager` helper (used inside `case "list_sessions"`)
+returned early when `fs.existsSync(sessionPath)` was false. The bridge
+creates a new session in memory via `SessionManager.create(cwd, ...)`,
+which sets the session file path but does not flush the header to disk
+until messages are written. So immediately after `new_session`, the file
+does not exist on disk, the cached manager was skipped, and the new
+session was invisible to the sidebar's `list_sessions` response. The
+fix: pass `requireOnDisk: false` for the cached-detached-managers loop
+in `case "list_sessions"` so the in-memory header is used. Disk-backed
+callers (the live-session manager, the `listWorkspaceSessionFiles` loop)
+keep the existing `fs.existsSync` check.
+
+**Affected paths.** All `new_session` flows, including the auto-create
+path inside `case "prompt"` (which returns a synthetic `new_session`
+response when no detached session is selected).
+
+**Workaround (before fix).** Refresh the web UI.

@@ -3244,8 +3244,9 @@ var WsRpcAdapter = class {
 						seenSessionPaths.add(session.path);
 						sessions.push(session);
 					};
-					const appendSessionManager = (sessionManager, sessionPath, fallbackWorkspacePath) => {
-						if (!sessionPath || !fs.existsSync(sessionPath)) return;
+					const appendSessionManager = (sessionManager, sessionPath, fallbackWorkspacePath, options) => {
+						if (!sessionPath) return;
+						if (options?.requireOnDisk !== false && !fs.existsSync(sessionPath)) return;
 						const header = sessionManager.getHeader();
 						if (!header) return;
 						const workspace = workspaceMetadata(sessionManager.getCwd() || header.cwd || fallbackWorkspacePath, sessionPath);
@@ -3262,7 +3263,7 @@ var WsRpcAdapter = class {
 					for (const sessionPath of listWorkspaceSessionFiles(workspacePath)) appendSession(readWorkspaceSessionSummary(sessionPath, sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath)));
 					if (command.includeActive !== false) {
 						appendSessionManager(this.context.state.sessionManager, liveSessionFile, this.context.state.cwd);
-						for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) appendSessionManager(sessionManager, sessionManager.getSessionFile(), this.context.state.cwd);
+						for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) appendSessionManager(sessionManager, sessionManager.getSessionFile(), this.context.state.cwd, { requireOnDisk: false });
 					}
 					const filteredSessions = sessions.filter((session) => isAfterSessionCursor(session, cursor)).filter((session) => sessionMatchesListQuery(session, command.query)).sort(compareSessionsByRecency);
 					const limitedSessions = limit ? filteredSessions.slice(0, limit) : filteredSessions;

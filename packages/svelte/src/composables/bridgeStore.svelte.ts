@@ -2409,6 +2409,17 @@ function handleEvent(payload: RpcBridgeEvent) {
         _isStreaming = false;
         sendCommand({ type: "get_state" }).catch(() => {});
       }
+      // Refresh the workspace session list so the sidebar picks up the
+      // updated session name (e.g. "New session" → first user message)
+      // after the first turn completes.
+      const wp = _sessionState?.workspacePath;
+      if (wp) {
+        void loadWorkspaceSessions({
+          workspacePath: wp,
+          limit: 5,
+          merge: "replace",
+        }).catch(() => {});
+      }
       break;
     }
     case "model_select": {

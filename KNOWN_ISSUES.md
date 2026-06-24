@@ -142,3 +142,36 @@ path inside `case "prompt"` (which returns a synthetic `new_session`
 response when no detached session is selected).
 
 **Workaround (before fix).** Refresh the web UI.
+
+## Slash command palette: skills from project .pi/settings.json not visible
+
+**Status:** under investigation.
+
+**Symptom.** Project skills (e.g. `/skill:odoo-rpc` from `.claude/skills/
+mapped via `.pi/settings.json`) don't appear in the web UI's slash command
+palette. Extension commands (like `/web`) and built-ins (like `/compact`)
+work fine.
+
+**Reproduction.**
+1. Start pi in a project with skills (e.g. `odoo/en-erp` with `.pi/settings.json`
+   mapping `../.claude/skills`).
+2. Open the web UI.
+3. Type `/` in the composer — no `skill:` entries appear.
+
+**Root cause.** The data flow is: `pi.getCommands()` → `AgentSession.getCommands()`
+→ includes `this._resourceLoader.getSkills().skills` → maps to `skill:<name>`.
+The bridge extension calls `pi.getCommands()` via `ExtensionAPI.getCommands()`,
+which goes through `ExtensionRuntime.getCommands()` →
+`actions.getCommands` (the `AgentSession` closure). The `ws-rpc-adapter`
+now correctly preserves the `source` field. The client re-fetches
+`get_commands` after `agent_end`.
+
+**Possible remaining gaps:**
+- The initial `get_commands` call may fire before pi's resource loader has
+  finished loading project skills (race condition on startup).
+- The `ExtensionRuntime.assertActive()` check may prevent `getCommands()`
+  from being called in certain states.
+- Verify in DevTools → Network → WS tab: look at the `get_commands`
+  response payload. If `skill:` entries are present, the issue is
+  client-side. If absent, the issue is server-side (pi's resource loader
+  hasn't loaded skills yet, or the extension API doesn't expose them).

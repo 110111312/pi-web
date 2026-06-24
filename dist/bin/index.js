@@ -1512,7 +1512,8 @@ function readSessionFileHeader(sessionPath) {
 	return {
 		id: header.id,
 		timestamp: typeof header.timestamp === "string" ? header.timestamp : void 0,
-		cwd: typeof header.cwd === "string" ? header.cwd : void 0
+		cwd: typeof header.cwd === "string" ? header.cwd : void 0,
+		parentSession: typeof header.parentSession === "string" ? header.parentSession : void 0
 	};
 }
 function readWorkspaceSessionSummary(sessionPath, running) {
@@ -1530,7 +1531,8 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 		isRunning: running,
 		timestamp,
 		updatedAt: timestamp,
-		...workspace
+		...workspace,
+		parentSession: header.parentSession
 	};
 }
 /**
@@ -4274,7 +4276,8 @@ var WsRpcAdapter = class {
 							isRunning: sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath),
 							timestamp: normalizeSessionTimestamp(header.timestamp),
 							updatedAt: normalizeSessionTimestamp(header.timestamp),
-							...workspace
+							...workspace,
+							parentSession: header.parentSession
 						});
 					};
 					for (const sessionPath of listWorkspaceSessionFiles(workspacePath)) appendSession(readWorkspaceSessionSummary(sessionPath, sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath)));
@@ -4282,9 +4285,16 @@ var WsRpcAdapter = class {
 						appendSessionManager(this.context.state.sessionManager, liveSessionFile, this.context.state.cwd);
 						for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) appendSessionManager(sessionManager, sessionManager.getSessionFile(), this.context.state.cwd, { requireOnDisk: false });
 					}
-					const filteredSessions = sessions.filter((session) => isAfterSessionCursor(session, cursor)).filter((session) => sessionMatchesListQuery(session, command.query)).sort(compareSessionsByRecency);
-					const limitedSessions = limit ? filteredSessions.slice(0, limit) : filteredSessions;
 					const activeSessionPath = this.sessionRuntime.currentTranscriptSessionPath() ?? liveSessionFile;
+					const allSessionPaths = new Set(sessions.map((s) => s.path));
+					const filteredSessions = sessions.filter((session) => {
+						if (!session.parentSession) return true;
+						if (!allSessionPaths.has(session.parentSession)) return true;
+						if (session.path === liveSessionFile) return true;
+						if (session.path === activeSessionPath) return true;
+						return false;
+					}).filter((session) => isAfterSessionCursor(session, cursor)).filter((session) => sessionMatchesListQuery(session, command.query)).sort(compareSessionsByRecency);
+					const limitedSessions = limit ? filteredSessions.slice(0, limit) : filteredSessions;
 					const pageSessions = [...limitedSessions];
 					if (command.includeActive !== false && activeSessionPath) {
 						const activeSession = filteredSessions.find((session) => session.path === activeSessionPath);

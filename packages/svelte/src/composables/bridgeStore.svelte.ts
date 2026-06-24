@@ -83,6 +83,7 @@ export interface SessionEntry {
   workspaceId?: string;
   workspaceName?: string;
   workspacePath?: string;
+  parentSession?: string;
 }
 
 export type WorkspaceSummary = RpcWorkspaceSummary;

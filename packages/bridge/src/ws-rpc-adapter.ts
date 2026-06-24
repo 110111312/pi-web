@@ -169,6 +169,7 @@ interface WorkspaceSessionEntry {
   workspaceId?: string;
   workspaceName?: string;
   workspacePath?: string;
+  parentSession?: string;
 }
 
 interface WorkspaceMetadata {
@@ -188,7 +189,9 @@ interface SessionListCursor {
 }
 
 interface SessionListManager {
-  getHeader: () => { id: string; timestamp: string; cwd?: string } | null;
+  getHeader: () =>
+    | { id: string; timestamp: string; cwd?: string; parentSession?: string }
+    | null;
   getCwd: () => string | undefined;
   getSessionFile: () => string | undefined;
   getSessionName: () => string | undefined;
@@ -994,6 +997,7 @@ function readSessionFileHeader(sessionPath: string): {
   id: string;
   timestamp?: string;
   cwd?: string;
+  parentSession?: string;
 } | null {
   const prefix = readSessionFilePrefix(sessionPath);
   const firstLine = prefix.split("\n", 1)[0];
@@ -1001,6 +1005,7 @@ function readSessionFileHeader(sessionPath: string): {
     id?: unknown;
     timestamp?: unknown;
     cwd?: unknown;
+    parentSession?: unknown;
     type?: unknown;
   } | null;
   if (header?.type !== "session" || typeof header.id !== "string") {
@@ -1012,6 +1017,10 @@ function readSessionFileHeader(sessionPath: string): {
     timestamp:
       typeof header.timestamp === "string" ? header.timestamp : undefined,
     cwd: typeof header.cwd === "string" ? header.cwd : undefined,
+    parentSession:
+      typeof header.parentSession === "string"
+        ? header.parentSession
+        : undefined,
   };
 }
 
@@ -1041,6 +1050,7 @@ function readWorkspaceSessionSummary(
     timestamp,
     updatedAt: timestamp,
     ...workspace,
+    parentSession: header.parentSession,
   };
 }
 
@@ -5758,6 +5768,7 @@ export class WsRpcAdapter {
               timestamp: normalizeSessionTimestamp(header.timestamp),
               updatedAt: normalizeSessionTimestamp(header.timestamp),
               ...workspace,
+              parentSession: header.parentSession,
             });
           };
 
@@ -5791,16 +5802,33 @@ export class WsRpcAdapter {
             }
           }
 
+          const activeSessionPath =
+            this.sessionRuntime.currentTranscriptSessionPath() ??
+            liveSessionFile;
+          // Filter out branch sessions whose parent exists in the same
+          // workspace. The right sidebar (SessionTreeRail) handles
+          // in-session tree navigation, so branches only clutter the left
+          // sidebar. Keep the active branch if the user has switched into it.
+          const allSessionPaths = new Set(
+            sessions.map(s => s.path),
+          );
           const filteredSessions = sessions
+            .filter(session => {
+              if (!session.parentSession) return true;
+              // Keep if the parent is not in this workspace (e.g. cross-workspace fork)
+              if (!allSessionPaths.has(session.parentSession)) return true;
+              // Keep if this is the live or active session
+              if (session.path === liveSessionFile) return true;
+              if (session.path === activeSessionPath) return true;
+              // This is a branch whose parent is in the same workspace — hide it
+              return false;
+            })
             .filter(session => isAfterSessionCursor(session, cursor))
             .filter(session => sessionMatchesListQuery(session, command.query))
             .sort(compareSessionsByRecency);
           const limitedSessions = limit
             ? filteredSessions.slice(0, limit)
             : filteredSessions;
-          const activeSessionPath =
-            this.sessionRuntime.currentTranscriptSessionPath() ??
-            liveSessionFile;
           const pageSessions = [...limitedSessions];
           if (command.includeActive !== false && activeSessionPath) {
             const activeSession = filteredSessions.find(

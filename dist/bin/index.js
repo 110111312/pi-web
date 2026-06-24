@@ -1215,6 +1215,13 @@ function workspaceMetadata(workspacePath, sessionPath) {
 		workspacePath: normalizedWorkspacePath
 	};
 }
+function safeStatMtime(filePath) {
+	try {
+		return fs.statSync(filePath).mtime.toISOString();
+	} catch {
+		return;
+	}
+}
 function normalizeSessionTimestamp(timestamp) {
 	const value = sessionTimestampSortValue(timestamp);
 	return Number.isFinite(value) ? new Date(value).toISOString() : timestamp;
@@ -1521,6 +1528,7 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 	const header = readSessionFileHeader(sessionPath);
 	if (!header) return null;
 	const timestamp = normalizeSessionTimestamp(header.timestamp);
+	const mtime = safeStatMtime(sessionPath);
 	const workspace = workspaceMetadata(header.cwd, sessionPath);
 	const firstUserMessage = findFirstUserMessageText(prefix);
 	const explicitName = readLatestSessionInfoName(sessionPath);
@@ -1530,7 +1538,7 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 		path: sessionPath,
 		isRunning: running,
 		timestamp,
-		updatedAt: timestamp,
+		updatedAt: normalizeSessionTimestamp(mtime ?? timestamp),
 		...workspace,
 		parentSession: header.parentSession
 	};
@@ -4269,13 +4277,14 @@ var WsRpcAdapter = class {
 						const header = sessionManager.getHeader();
 						if (!header) return;
 						const workspace = workspaceMetadata(sessionManager.getCwd() || header.cwd || fallbackWorkspacePath, sessionPath);
+						const sessionMtime = safeStatMtime(sessionPath);
 						appendSession({
 							id: header.id,
 							name: sessionDisplayName(sessionManager, sessionPath),
 							path: sessionPath,
 							isRunning: sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath),
 							timestamp: normalizeSessionTimestamp(header.timestamp),
-							updatedAt: normalizeSessionTimestamp(header.timestamp),
+							updatedAt: normalizeSessionTimestamp(sessionMtime ?? header.timestamp),
 							...workspace,
 							parentSession: header.parentSession
 						});

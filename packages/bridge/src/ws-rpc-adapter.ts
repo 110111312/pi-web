@@ -514,6 +514,14 @@ function workspaceMetadata(
   };
 }
 
+function safeStatMtime(filePath: string): string | undefined {
+  try {
+    return fs.statSync(filePath).mtime.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeSessionTimestamp(timestamp?: string): string | undefined {
   const value = sessionTimestampSortValue(timestamp);
   return Number.isFinite(value) ? new Date(value).toISOString() : timestamp;
@@ -1035,6 +1043,7 @@ function readWorkspaceSessionSummary(
   }
 
   const timestamp = normalizeSessionTimestamp(header.timestamp);
+  const mtime = safeStatMtime(sessionPath);
   const workspace = workspaceMetadata(header.cwd, sessionPath);
   const firstUserMessage = findFirstUserMessageText(prefix);
   // Prefer an explicit session title (set via /name or the rename action) over
@@ -1048,7 +1057,7 @@ function readWorkspaceSessionSummary(
     path: sessionPath,
     isRunning: running,
     timestamp,
-    updatedAt: timestamp,
+    updatedAt: normalizeSessionTimestamp(mtime ?? timestamp),
     ...workspace,
     parentSession: header.parentSession,
   };
@@ -5757,6 +5766,7 @@ export class WsRpcAdapter {
               sessionManager.getCwd() || header.cwd || fallbackWorkspacePath,
               sessionPath,
             );
+            const sessionMtime = safeStatMtime(sessionPath);
             appendSession({
               id: header.id,
               name: sessionDisplayName(sessionManager, sessionPath),
@@ -5766,7 +5776,7 @@ export class WsRpcAdapter {
                   ? !this.context.state.isIdle()
                   : this.sessionRuntime.isSessionRunning(sessionPath),
               timestamp: normalizeSessionTimestamp(header.timestamp),
-              updatedAt: normalizeSessionTimestamp(header.timestamp),
+              updatedAt: normalizeSessionTimestamp(sessionMtime ?? header.timestamp),
               ...workspace,
               parentSession: header.parentSession,
             });

@@ -2208,6 +2208,11 @@ describe("WsRpcAdapter", () => {
           }),
         ].join("\n") + "\n",
       );
+      // Set older file's mtime to 1 second in the past so it sorts after
+      // the current session (which has a more recent mtime).
+      const oneSecondAgo = new Date(Date.now() - 1000);
+      fs.utimesSync(olderSessionFile, oneSecondAgo, oneSecondAgo);
+
       (
         context.state.sessionManager.getSessionFile as ReturnType<typeof vi.fn>
       ).mockReturnValue(currentSessionFile);
@@ -2255,30 +2260,25 @@ describe("WsRpcAdapter", () => {
       expect(response.type).toBe("response");
       expect(response.payload.command).toBe("list_sessions");
       expect(response.payload.success).toBe(true);
-      expect(response.payload.data.sessions).toEqual([
-        {
-          id: "current-id",
-          name: "Current first prompt",
-          path: currentSessionFile,
-          isRunning: false,
-          timestamp: "2025-01-02T00:00:00.000Z",
-          updatedAt: "2025-01-02T00:00:00.000Z",
-          workspaceId: "/tmp",
-          workspaceName: "tmp",
-          workspacePath: "/tmp",
-        },
-        {
-          id: "older-id",
-          name: "Older first prompt",
-          path: olderSessionFile,
-          isRunning: false,
-          timestamp: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-          workspaceId: "/tmp",
-          workspaceName: "tmp",
-          workspacePath: "/tmp",
-        },
-      ]);
+      const sessions = response.payload.data.sessions;
+      // Sort order: most recently modified first (updatedAt comes from file mtime)
+      expect(sessions).toHaveLength(2);
+      // Current session sorts first because it was written after the older one
+      expect(sessions[0].id).toBe("current-id");
+      expect(sessions[0].name).toBe("Current first prompt");
+      expect(sessions[0].path).toBe(currentSessionFile);
+      expect(sessions[0].timestamp).toBe("2025-01-02T00:00:00.000Z");
+      expect(sessions[0].workspaceId).toBe("/tmp");
+      expect(sessions[1].id).toBe("older-id");
+      expect(sessions[1].name).toBe("Older first prompt");
+      expect(sessions[1].path).toBe(olderSessionFile);
+      expect(sessions[1].timestamp).toBe("2025-01-01T00:00:00.000Z");
+      // updatedAt now comes from file mtime, so it's a real timestamp
+      expect(sessions[0].updatedAt).not.toBe(sessions[1].updatedAt);
+      // The current session must sort first (more recent updatedAt)
+      expect(
+        Date.parse(sessions[0].updatedAt),
+      ).toBeGreaterThanOrEqual(Date.parse(sessions[1].updatedAt));
 
       fs.rmSync(sessionDir, { recursive: true, force: true });
     });

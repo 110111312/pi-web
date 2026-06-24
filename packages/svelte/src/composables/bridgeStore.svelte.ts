@@ -2051,8 +2051,7 @@ export async function setSessionName(
     if (workspacePath) {
       void loadWorkspaceSessions({
         workspacePath,
-        limit: 5,
-        merge: "replace",
+        merge: "append",
       }).catch(() => {});
     }
   }
@@ -2262,8 +2261,7 @@ function handleResponse(payload: RpcResponse) {
         if (workspacePath) {
           void loadWorkspaceSessions({
             workspacePath,
-            limit: 5,
-            merge: "replace",
+            merge: "append",
           }).catch(() => {});
         }
         break;
@@ -2411,13 +2409,13 @@ function handleEvent(payload: RpcBridgeEvent) {
       }
       // Refresh the workspace session list so the sidebar picks up the
       // updated session name (e.g. "New session" → first user message)
-      // after the first turn completes.
+      // after the first turn completes. Use "append" merge to avoid
+      // truncating an already-loaded full session list.
       const wp = _sessionState?.workspacePath;
       if (wp) {
         void loadWorkspaceSessions({
           workspacePath: wp,
-          limit: 5,
-          merge: "replace",
+          merge: "append",
         }).catch(() => {});
       }
       break;

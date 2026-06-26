@@ -4,16 +4,19 @@
   import ChevronRight from "lucide-svelte/icons/chevron-right";
   import File from "lucide-svelte/icons/file";
   import Folder from "lucide-svelte/icons/folder";
+  import RefreshCw from "lucide-svelte/icons/refresh-cw";
   import { buildFileTree, filterFileTree, type FileTreeNode } from "../utils/fileTree";
 
   let {
     entries = [] as readonly RpcWorkspaceEntry[],
     loading = false,
     onOpenFile = (_: string) => {},
+    onRefresh,
   }: {
     entries?: readonly RpcWorkspaceEntry[];
     loading?: boolean;
     onOpenFile?: (path: string) => void;
+    onRefresh?: () => void;
   } = $props();
 
   let query = $state("");
@@ -97,13 +100,31 @@
 
 <div class="file-rail">
   <div class="file-toolbar">
-    <input
-      bind:value={query}
-      class="search-input"
-      type="search"
-      placeholder="Search files..."
-      aria-label="Filter files"
-    />
+    <div class="file-toolbar-row">
+      <input
+        bind:value={query}
+        class="search-input"
+        type="search"
+        placeholder="Search files..."
+        aria-label="Filter files"
+      />
+      {#if onRefresh}
+        <button
+          type="button"
+          class="refresh-btn"
+          onclick={() => onRefresh?.()}
+          title="Refresh file list"
+          aria-label="Refresh file list"
+          disabled={loading}
+        >
+          <RefreshCw
+            size={13}
+            class={`refresh-icon${loading ? " spin" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="tree-scroll">
@@ -199,9 +220,17 @@
     padding: 0 3px 6px;
   }
 
+  .file-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .search-input {
     height: 26px;
     width: 100%;
+    flex: 1;
+    min-width: 0;
     border-radius: 7px;
     border: 1px solid var(--border);
     background: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -213,6 +242,53 @@
 
   .search-input:focus {
     border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  }
+
+  .refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease,
+      border-color 0.12s ease;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+
+  .refresh-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .refresh-icon {
+    transition: color 0.12s ease;
+  }
+
+  .refresh-icon.spin {
+    animation: refresh-spin 1s linear infinite;
+  }
+
+  @keyframes refresh-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .tree-scroll {

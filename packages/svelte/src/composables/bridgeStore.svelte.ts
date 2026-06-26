@@ -216,7 +216,6 @@ function summarizeErrorMessage(message: string, fallback: string): string {
 // Constants
 // ---------------------------------------------------------------------------
 
-const WORKSPACE_ENTRIES_REFRESH_MS = 10_000;
 const MAX_RECONNECT_DELAY = 30_000;
 const SESSION_ROUTE_PARAM = "session";
 
@@ -1719,11 +1718,11 @@ export async function fetchWorkspaceEntries(
   const wp = getDisplayedWorkspacePath();
   const ck = getWorkspaceEntriesContextKey();
   const contextChanged = workspaceEntriesLoadedContextKey !== ck;
-  const isStale =
-    workspaceEntriesLoadedAt > 0 &&
-    Date.now() - workspaceEntriesLoadedAt >= WORKSPACE_ENTRIES_REFRESH_MS;
-  const shouldRefresh =
-    force || !_workspaceEntriesLoaded || contextChanged || isStale;
+  // Once entries are loaded for the current workspace context, keep them
+  // cached indefinitely. The cache is invalidated explicitly by
+  // `refreshWorkspaceEntries`, on workspace switch (contextChanged), and
+  // after agent_end events that may have created/deleted/moved files.
+  const shouldRefresh = force || !_workspaceEntriesLoaded || contextChanged;
 
   if (!shouldRefresh) return _workspaceEntries;
 
@@ -1749,7 +1748,7 @@ export async function fetchWorkspaceEntries(
   workspaceEntriesRequest = sendCommand({
     id: rid,
     type: "list_workspace_entries",
-    force: force || contextChanged || isStale,
+    force: force || contextChanged,
     ...(wp ? { workspacePath: wp } : {}),
   })
     .then(() => _workspaceEntries)
@@ -1763,6 +1762,15 @@ export async function fetchWorkspaceEntries(
     });
 
   return workspaceEntriesRequest;
+}
+
+/**
+ * Force a fresh scan of workspace entries, bypassing the client-side cache.
+ * Used by the file-browser refresh button and after agent_end events where
+ * the agent may have created, moved, or deleted files.
+ */
+export function refreshWorkspaceEntries(): Promise<RpcWorkspaceEntry[]> {
+  return fetchWorkspaceEntries(true);
 }
 
 export async function readWorkspaceFile(
@@ -2441,6 +2449,10 @@ function handleEvent(payload: RpcBridgeEvent) {
           merge: "append",
         }).catch(() => {});
       }
+      // Refresh workspace entries since the agent may have created,
+      // deleted, or moved files during its turn. Force so we bypass the
+      // client-side cache.
+      void refreshWorkspaceEntries().catch(() => {});
       break;
     }
     case "model_select": {
@@ -2774,6 +2786,7 @@ export function initBridge() {
     sendPrompt,
     loadOlderTranscriptPage,
     fetchWorkspaceEntries,
+    refreshWorkspaceEntries,
     readWorkspaceFile,
     writeWorkspaceFile,
     loadWorkspaceSessions,

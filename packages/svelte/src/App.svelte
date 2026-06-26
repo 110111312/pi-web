@@ -9,6 +9,7 @@
   import ExtensionDialog from "./components/ExtensionDialog.svelte";
   import ReconnectBanner from "./components/ReconnectBanner.svelte";
   import ThemeSettingsDialog from "./components/ThemeSettingsDialog.svelte";
+  import FileViewerModal from "./components/FileViewerModal.svelte";
   import { initBridge } from "./composables/bridgeStore.svelte";
   import AppHeader from "./layout/AppHeader.svelte";
   import AppMainContent from "./layout/AppMainContent.svelte";
@@ -49,12 +50,6 @@
 
   type RightSidebarTabId = string;
 
-  type FileViewerTab = {
-    id: string;
-    path: string;
-    lineNumber: number;
-  };
-
   const bridge = initBridge();
 
   const TREE_TAB_ID = "tree";
@@ -65,7 +60,9 @@
   let outlineSidebarOpen = $state(false);
   let themeSettingsOpen = $state(false);
   let activeRightSidebarTabId = $state<RightSidebarTabId>(TREE_TAB_ID);
-  let fileViewerTabs = $state<FileViewerTab[]>([]);
+  let modalFileOpen = $state(false);
+  let modalFilePath = $state<string | null>(null);
+  let modalFileLineNumber = $state(1);
   let mainContentRef: AppMainContent | null = $state(null);
   let pendingRevision = $state<{
     entryId: string;
@@ -521,9 +518,10 @@
   let displayedQueuedUserMessages = $derived(
     activeDebugSession ? [] : bridge.queuedUserMessages,
   );
-  // Files tab is shown alongside the tree tab whenever the sidebar is visible.
+  // The right sidebar shows whenever there's a session tree to browse or a
+  // workspace files tab to show — basically whenever the app has content.
   let hasRightSidebarContent = $derived(
-    displayedHasSessionOutline || fileViewerTabs.length > 0,
+    displayedHasSessionOutline || bridge.hasSessionOutline,
   );
   const hasFilesTab = $derived(hasRightSidebarContent);
 
@@ -559,10 +557,6 @@
       : displayedSessionState?.workspacePath ?? activeSessionEntry?.workspacePath ?? null,
   );
 
-  let activeFileViewerTab = $derived(
-    fileViewerTabs.find(t => t.id === activeRightSidebarTabId) ?? null,
-  );
-
   let showLeftRailResizer = $derived(
     !compactLayout && !leftSidebarCollapsed,
   );
@@ -575,23 +569,14 @@
   let leftRailResizerStyle = $derived(`left: ${leftRailWidth - 5}px`);
   let rightRailResizerStyle = $derived(`right: ${rightRailWidth - 5}px`);
 
-  function fileViewerTabId(path: string): string {
-    return `file:${path.replace(/\\/g, "/")}`;
-  }
-
   function defaultRightSidebarTabId(): RightSidebarTabId | null {
     if (displayedHasSessionOutline) return TREE_TAB_ID;
-    return fileViewerTabs[0]?.id ?? FILES_TAB_ID;
+    return FILES_TAB_ID;
   }
 
   function ensureActiveRightSidebarTab() {
     if (activeRightSidebarTabId === TREE_TAB_ID && displayedHasSessionOutline) return;
     if (activeRightSidebarTabId === FILES_TAB_ID) return;
-
-    const activeFileTab = fileViewerTabs.find(
-      t => t.id === activeRightSidebarTabId,
-    );
-    if (activeFileTab) return;
 
     activeRightSidebarTabId = defaultRightSidebarTabId() ?? TREE_TAB_ID;
   }
@@ -600,47 +585,14 @@
     const tp = path.trim();
     if (!tp) return;
 
-    const nl = Number.isInteger(lineNumber) && lineNumber > 0 ? lineNumber : 1;
-    const id = fileViewerTabId(tp);
-    const ei = fileViewerTabs.findIndex(t => t.id === id);
-    if (ei >= 0) {
-      const nt = [...fileViewerTabs];
-      nt[ei] = { ...nt[ei], lineNumber: nl };
-      fileViewerTabs = nt;
-    } else {
-      fileViewerTabs = [...fileViewerTabs, { id, path: tp, lineNumber: nl }];
-    }
-
-    activeRightSidebarTabId = id;
-    outlineSidebarOpen = true;
-    if (compactLayout) {
-      sidebarOpen = false;
-    } else {
-      rightRailWidth = clampRailWidth("right", rightRailWidth);
-    }
+    modalFilePath = tp;
+    modalFileLineNumber = Number.isInteger(lineNumber) && lineNumber > 0 ? lineNumber : 1;
+    modalFileOpen = true;
   }
 
-  function closeFileViewerTab(tabId: string) {
-    const ci = fileViewerTabs.findIndex(t => t.id === tabId);
-    if (ci === -1) return;
-
-    const nt = fileViewerTabs.filter(t => t.id !== tabId);
-    fileViewerTabs = nt;
-
-    if (activeRightSidebarTabId !== tabId) return;
-
-    const fb = nt[ci] ?? nt[ci - 1];
-    if (fb) {
-      activeRightSidebarTabId = fb.id;
-      return;
-    }
-
-    if (displayedHasSessionOutline) {
-      activeRightSidebarTabId = TREE_TAB_ID;
-      return;
-    }
-
-    outlineSidebarOpen = false;
+  function closeFileViewer() {
+    modalFileOpen = false;
+    modalFilePath = null;
   }
 
   function isCompactLayout(): boolean {
@@ -946,9 +898,14 @@
   function handleRightSidebarTabSelect(tabId: string) {
     activeRightSidebarTabId = tabId;
     if (tabId === TREE_TAB_ID) handleRefreshTree();
-    if (tabId === FILES_TAB_ID) {
-      void bridge.fetchWorkspaceEntries().catch(() => {});
-    }
+    // Workspace entries are cached aggressively on the client side; only
+    // fetch on first switch (cache miss) — handled by fetchWorkspaceEntries
+    // internally. Subsequent tab switches reuse the cached entries without
+    // a round-trip. Users can force a fresh scan via the refresh button.
+  }
+
+  function handleRefreshWorkspaceEntries() {
+    void bridge.refreshWorkspaceEntries().catch(() => {});
   }
 
   function handleOpenFileReference(payload: {
@@ -1261,25 +1218,15 @@
 
   $effect(() => {
     if (!displayedHasSessionOutline && activeRightSidebarTabId === TREE_TAB_ID) {
-      const fb = fileViewerTabs[0];
-      if (fb) {
-        activeRightSidebarTabId = fb.id;
-        return;
-      }
+      activeRightSidebarTabId = FILES_TAB_ID;
+      return;
     }
 
-    if (!displayedHasSessionOutline && fileViewerTabs.length === 0) {
+    if (!hasRightSidebarContent) {
       outlineSidebarOpen = false;
       return;
     }
 
-    ensureActiveRightSidebarTab();
-  });
-
-  $effect(() => {
-    if (fileViewerTabs.length === 0 && !displayedHasSessionOutline) {
-      outlineSidebarOpen = false;
-    }
     ensureActiveRightSidebarTab();
   });
 
@@ -1511,17 +1458,23 @@
       hasTreeTab={displayedHasSessionOutline}
       {hasFilesTab}
       activeTabId={activeRightSidebarTabId}
-      activeFileTab={activeFileViewerTab}
-      {fileViewerTabs}
       workspaceEntries={displayedWorkspaceEntries}
       workspaceEntriesLoading={displayedWorkspaceEntriesLoading}
-      readWorkspaceFile={readDisplayedWorkspaceFile}
-      writeWorkspaceFile={writeDisplayedWorkspaceFile}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
-      onCloseFileTab={closeFileViewerTab}
       onSelectTreeEntry={handleTreeEntrySelect}
       onOpenFile={(path: string) => openFileViewer(path, 1)}
+      onRefresh={handleRefreshWorkspaceEntries}
+    />
+  {/if}
+
+  {#if modalFileOpen && modalFilePath}
+    <FileViewerModal
+      filePath={modalFilePath}
+      lineNumber={modalFileLineNumber}
+      readWorkspaceFile={readDisplayedWorkspaceFile}
+      writeWorkspaceFile={writeDisplayedWorkspaceFile}
+      onClose={closeFileViewer}
     />
   {/if}
 

@@ -1943,6 +1943,60 @@ function parseDiffHunkHeader(line) {
 		newCount: match[4] !== void 0 ? Number(match[4]) : 1
 	};
 }
+/** Directories we never scan for nested git repos. */
+const SKIPPED_REPO_SCAN_DIRS = new Set([
+	"node_modules",
+	".cache",
+	".config",
+	"dist",
+	"build",
+	"target",
+	".tox",
+	"venv",
+	".venv",
+	"__pycache__",
+	".next",
+	".nuxt",
+	".parcel-cache",
+	".turbo"
+]);
+/**
+* Find git repositories under a workspace root by scanning for `.git`
+* entries. Intentionally does NOT call any git commands so the scan stays
+* fast and never blocks the Node.js event loop (even on large monorepos
+* with hundreds of subdirectories).
+*
+* Returns deduplicated entries with the workspace root listed first.
+*/
+function listGitRepos(cwd) {
+	const repos = [];
+	const seen = /* @__PURE__ */ new Set();
+	function tryAdd(dirPath) {
+		try {
+			fs.accessSync(path.join(dirPath, ".git"));
+		} catch {
+			return;
+		}
+		const resolved = path.resolve(dirPath);
+		if (seen.has(resolved)) return;
+		seen.add(resolved);
+		repos.push({
+			root: resolved,
+			label: path.basename(resolved) || resolved
+		});
+	}
+	tryAdd(cwd);
+	try {
+		const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
+		for (const entry of topEntries) {
+			if (!entry.isDirectory()) continue;
+			if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
+			if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+			tryAdd(path.join(cwd, entry.name));
+		}
+	} catch {}
+	return repos;
+}
 /**
 * Parse `git diff --no-color` output into structured diff entries.
 *
@@ -4738,7 +4792,7 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "list_diff_entries": {
-				const cwd = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				const cwd = normalizeOptionalWorkspaceRoot(command.repoRoot) || normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
 				if (!cwd) return {
 					id: correlationId,
 					type: "response",
@@ -4752,6 +4806,23 @@ var WsRpcAdapter = class {
 					command: "list_diff_entries",
 					success: true,
 					data: { entries: parseGitDiff(cwd) }
+				};
+			}
+			case "list_git_repos": {
+				const cwd = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				if (!cwd) return {
+					id: correlationId,
+					type: "response",
+					command: "list_git_repos",
+					success: false,
+					error: "No working directory for the active session"
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "list_git_repos",
+					success: true,
+					data: { repos: listGitRepos(cwd) }
 				};
 			}
 			case "switch_git_branch": {

@@ -63,6 +63,7 @@
   let outlineSidebarOpen = $state(false);
   let themeSettingsOpen = $state(false);
   let activeRightSidebarTabId = $state<RightSidebarTabId>(TREE_TAB_ID);
+  let selectedGitRepoRoot = $state<string | null>(null);
   let modalFileOpen = $state(false);
   let modalFilePath = $state<string | null>(null);
   let modalFileLineNumber = $state(1);
@@ -934,7 +935,8 @@
       void bridge.fetchWorkspaceEntries().catch(() => {});
     }
     if (tabId === GIT_TAB_ID) {
-      void bridge.fetchDiffEntries().catch(() => {});
+      void bridge.fetchDiffEntries(false, selectedGitRepoRoot).catch(() => {});
+      void bridge.fetchGitRepos().catch(() => {});
     }
   }
 
@@ -943,7 +945,12 @@
   }
 
   function handleRefreshDiffEntries() {
-    void bridge.refreshDiffEntries().catch(() => {});
+    void bridge.refreshDiffEntries(selectedGitRepoRoot).catch(() => {});
+  }
+
+  function handleSelectGitRepo(repoRoot: string | null) {
+    selectedGitRepoRoot = repoRoot;
+    void bridge.fetchDiffEntries(true, repoRoot).catch(() => {});
   }
 
   function fetchDirectoryEntries(path: string): Promise<RpcDirectoryEntry[]> {
@@ -1282,17 +1289,35 @@
   });
 
   $effect(() => {
-    // When the Git tab is active and diff entries are empty, ensure we fetch.
-    // This handles the case where diff entries were invalidated (e.g. session
-    // switch) and the user hasn't manually triggered a refresh yet.
+    // When the Git tab is active and diff entries are empty for the
+    // currently-selected repo, ensure we fetch. This handles session
+    // switches and repo switches that invalidated the cached entries.
     if (
       outlineSidebarOpen &&
       activeRightSidebarTabId === GIT_TAB_ID &&
       bridge.diffEntries.length === 0 &&
-      !bridge.diffLoading
+      !bridge.diffLoading &&
+      bridge.diffRepoRoot === selectedGitRepoRoot
     ) {
-      void bridge.fetchDiffEntries().catch(() => {});
+      void bridge.fetchDiffEntries(false, selectedGitRepoRoot).catch(() => {});
     }
+    // Also discover available git repos whenever the Git tab is opened or
+    // the session changes.
+    if (
+      outlineSidebarOpen &&
+      activeRightSidebarTabId === GIT_TAB_ID &&
+      bridge.gitReposLoaded === false &&
+      !bridge.gitReposLoading
+    ) {
+      void bridge.fetchGitRepos().catch(() => {});
+    }
+  });
+
+  $effect(() => {
+    // Reset the selected repo when the session changes so we don't keep
+    // pointing at a path that no longer belongs to the active workspace.
+    void displayedActiveSessionPath;
+    selectedGitRepoRoot = null;
   });
 
   $effect(() => {
@@ -1527,6 +1552,9 @@
       onFetchDirectory={fetchDirectoryEntries}
       diffEntries={bridge.diffEntries}
       diffLoading={bridge.diffLoading}
+      gitRepos={bridge.gitRepos}
+      gitReposLoading={bridge.gitReposLoading}
+      selectedRepoRoot={selectedGitRepoRoot}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
       onSelectTreeEntry={handleTreeEntrySelect}
@@ -1534,6 +1562,7 @@
       onOpenFileDiff={openFileDiffViewer}
       onRefresh={handleRefreshWorkspaceEntries}
       onRefreshDiff={handleRefreshDiffEntries}
+      onSelectRepo={handleSelectGitRepo}
     />
   {/if}
 

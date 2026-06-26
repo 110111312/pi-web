@@ -105,6 +105,14 @@ export interface RpcDiffEntry {
   hunks: RpcDiffHunk[];
 }
 
+/** A git repository discovered under the workspace root. */
+export interface RpcGitRepoEntry {
+  /** Absolute path to the repository root. */
+  root: string;
+  /** Display label (typically the directory basename). */
+  label: string;
+}
+
 /** Map of RPC command types to their specific payload shapes. */
 export interface RpcModel {
   id: string;
@@ -371,7 +379,8 @@ export interface RpcCommandMap {
   list_git_branches: {};
   switch_git_branch: { branchName: string };
   create_git_branch: { branchName: string };
-  list_diff_entries: { workspacePath?: string | null };
+  list_diff_entries: { workspacePath?: string | null; repoRoot?: string | null };
+  list_git_repos: { workspacePath?: string | null };
 
   /** Detached follow-up queue */
   dequeue_follow_up_message: { index: number };
@@ -732,6 +741,7 @@ export interface RpcResponseMap {
   switch_git_branch: RpcGitRepoState;
   create_git_branch: RpcGitRepoState;
   list_diff_entries: { entries: RpcDiffEntry[] };
+  list_git_repos: { repos: RpcGitRepoEntry[] };
   dequeue_follow_up_message: { removed: RpcQueuedMessage };
 }
 

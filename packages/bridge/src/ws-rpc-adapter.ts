@@ -33,6 +33,7 @@ import type {
   RpcDiffEntry,
   RpcDiffFileStatus,
   RpcDiffHunk,
+  RpcGitRepoEntry,
   RpcDiffLine,
   RpcDiffLineType,
   RpcExtensionUIRequest,
@@ -1724,6 +1725,71 @@ function parseDiffHunkHeader(line: string): {
     newStart: Number(match[3]),
     newCount: match[4] !== undefined ? Number(match[4]) : 1,
   };
+}
+
+/** Directories we never scan for nested git repos. */
+const SKIPPED_REPO_SCAN_DIRS = new Set([
+  "node_modules",
+  ".cache",
+  ".config",
+  "dist",
+  "build",
+  "target",
+  ".tox",
+  "venv",
+  ".venv",
+  "__pycache__",
+  ".next",
+  ".nuxt",
+  ".parcel-cache",
+  ".turbo",
+]);
+
+/**
+ * Find git repositories under a workspace root by scanning for `.git`
+ * entries. Intentionally does NOT call any git commands so the scan stays
+ * fast and never blocks the Node.js event loop (even on large monorepos
+ * with hundreds of subdirectories).
+ *
+ * Returns deduplicated entries with the workspace root listed first.
+ */
+export function listGitRepos(cwd: string): RpcGitRepoEntry[] {
+  const repos: RpcGitRepoEntry[] = [];
+  const seen = new Set<string>();
+
+  function tryAdd(dirPath: string): void {
+    // Cheap filesystem check: skip dirs that clearly aren't git repos.
+    try {
+      fs.accessSync(path.join(dirPath, ".git"));
+    } catch {
+      return;
+    }
+    const resolved = path.resolve(dirPath);
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    repos.push({
+      root: resolved,
+      label: path.basename(resolved) || resolved,
+    });
+  }
+
+  // Always include the workspace/session cwd itself.
+  tryAdd(cwd);
+
+  // Scan direct children for nested repos at depth 1.
+  try {
+    const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
+    for (const entry of topEntries) {
+      if (!entry.isDirectory()) continue;
+      if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
+      if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+      tryAdd(path.join(cwd, entry.name));
+    }
+  } catch {
+    /* unreadable cwd, skip */
+  }
+
+  return repos;
 }
 
 /**
@@ -6456,6 +6522,7 @@ export class WsRpcAdapter {
 
       case "list_diff_entries": {
         const cwd =
+          normalizeOptionalWorkspaceRoot(command.repoRoot) ||
           normalizeOptionalWorkspaceRoot(command.workspacePath) ||
           this.sessionRuntime.currentGitCwd();
         if (!cwd) {
@@ -6475,6 +6542,30 @@ export class WsRpcAdapter {
           command: "list_diff_entries" as const,
           success: true as const,
           data: { entries },
+        };
+      }
+
+      case "list_git_repos": {
+        const cwd =
+          normalizeOptionalWorkspaceRoot(command.workspacePath) ||
+          this.sessionRuntime.currentGitCwd();
+        if (!cwd) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_git_repos" as const,
+            success: false as const,
+            error: "No working directory for the active session",
+          };
+        }
+
+        const repos = listGitRepos(cwd);
+        return {
+          id: correlationId,
+          type: "response" as const,
+          command: "list_git_repos" as const,
+          success: true as const,
+          data: { repos },
         };
       }
 

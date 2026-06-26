@@ -213,7 +213,7 @@
   @media (max-width: 900px) {
     .right-rail {
       position: absolute;
-      top: 0;
+      top: var(--mobile-header-offset, 0px);
       right: 0;
       bottom: 0;
       width: min(100vw, 520px);
@@ -231,7 +231,7 @@
     .rail-backdrop {
       display: block;
       position: absolute;
-      inset: 0;
+      inset: var(--mobile-header-offset, 0px) 0 0 0;
       background: var(--backdrop);
       z-index: 14;
       pointer-events: none;

@@ -1932,6 +1932,30 @@ export function parseGitDiff(cwd: string): RpcDiffEntry[] {
     entries.push(entry);
   }
 
+  // Also surface untracked files (not ignored) as "added" entries with empty
+  // hunks. `git diff` only shows tracked file changes, so without this users
+  // would not see new files they just created in the working tree.
+  const untrackedResult = runGitCommand(
+    cwd,
+    ["ls-files", "--others", "--exclude-standard"],
+    5000,
+  );
+  if (!untrackedResult.error && untrackedResult.status === 0) {
+    const untrackedOutput = readSpawnText(untrackedResult.stdout).trim();
+    if (untrackedOutput) {
+      const knownPaths = new Set(entries.map(e => e.path));
+      for (const untrackedPath of untrackedOutput.split(/\r?\n/)) {
+        if (!untrackedPath) continue;
+        if (knownPaths.has(untrackedPath)) continue;
+        entries.push({
+          path: untrackedPath,
+          status: "added",
+          hunks: [],
+        });
+      }
+    }
+  }
+
   return entries;
 }
 
@@ -6430,7 +6454,9 @@ export class WsRpcAdapter {
       }
 
       case "list_diff_entries": {
-        const cwd = this.sessionRuntime.currentGitCwd();
+        const cwd =
+          normalizeOptionalWorkspaceRoot(command.workspacePath) ||
+          this.sessionRuntime.currentGitCwd();
         if (!cwd) {
           return {
             id: correlationId,

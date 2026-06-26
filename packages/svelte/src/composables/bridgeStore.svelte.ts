@@ -2076,7 +2076,11 @@ export async function fetchDiffEntries(
   if (_connectionStatus !== "connected") return _diffEntries;
 
   _diffLoading = true;
-  diffEntriesRequest = sendCommand({ type: "list_diff_entries" })
+  const wp = getDisplayedWorkspacePath();
+  diffEntriesRequest = sendCommand({
+    type: "list_diff_entries",
+    ...(wp ? { workspacePath: wp } : {}),
+  })
     .then(resp => {
       if (!resp.success) {
         pushNotification(

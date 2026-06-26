@@ -371,7 +371,7 @@ export interface RpcCommandMap {
   list_git_branches: {};
   switch_git_branch: { branchName: string };
   create_git_branch: { branchName: string };
-  list_diff_entries: {};
+  list_diff_entries: { workspacePath?: string | null };
 
   /** Detached follow-up queue */
   dequeue_follow_up_message: { index: number };

@@ -1,39 +1,21 @@
 <script lang="ts">
-  import type {
-    RpcDiffEntry,
-    RpcDiffFileStatus,
-    RpcGitRepoInfo,
-  } from "@pi-web/bridge/types";
+  import type { RpcDiffEntry, RpcDiffFileStatus } from "@pi-web/bridge/types";
   import GitBranch from "lucide-svelte/icons/git-branch";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
 
   let {
     diffEntries = [] as readonly RpcDiffEntry[],
     diffLoading = false,
-    gitRepos = [] as readonly RpcGitRepoInfo[],
-    gitReposLoading = false,
-    selectedRepoRoot = null as string | null,
     onOpenFileDiff = (_: RpcDiffEntry) => {},
     onRefresh = () => {},
-    onSelectRepo = (_: string | null) => {},
   }: {
     diffEntries: readonly RpcDiffEntry[];
     diffLoading: boolean;
-    gitRepos: readonly RpcGitRepoInfo[];
-    gitReposLoading: boolean;
-    selectedRepoRoot: string | null;
     onOpenFileDiff: (entry: RpcDiffEntry) => void;
     onRefresh: () => void;
-    onSelectRepo: (repoRoot: string | null) => void;
   } = $props();
 
   let query = $state("");
-
-  function repoDisplayName(repo: RpcGitRepoInfo): string {
-    const branch = repo.currentBranch ?? repo.headLabel;
-    const folder = repo.root.split(/[\\/]/).filter(Boolean).pop() ?? repo.root;
-    return `${folder} (${branch})`;
-  }
 
   function statusBadge(status: RpcDiffFileStatus): string {
     switch (status) {
@@ -65,24 +47,6 @@
 
 <div class="git-rail">
   <div class="git-toolbar">
-    {#if gitRepos.length > 1}
-      <div class="git-repo-selector">
-        <select
-          class="git-repo-select"
-          value={selectedRepoRoot ?? gitRepos[0]?.root ?? ""}
-          onchange={(e) => {
-            const value = (e.currentTarget as HTMLSelectElement).value;
-            onSelectRepo(value || null);
-          }}
-          aria-label="Select git repository"
-          disabled={gitReposLoading && gitRepos.length === 0}
-        >
-          {#each gitRepos as repo (repo.root)}
-            <option value={repo.root}>{repoDisplayName(repo)}</option>
-          {/each}
-        </select>
-      </div>
-    {/if}
     <div class="git-toolbar-row">
       <input
         bind:value={query}
@@ -176,38 +140,6 @@
     flex-direction: column;
     gap: 6px;
     padding: 0 3px 6px;
-  }
-
-  .git-repo-selector {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .git-repo-select {
-    width: 100%;
-    height: 26px;
-    padding: 0 6px;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--panel-2) 60%, transparent);
-    color: var(--text);
-    font: inherit;
-    font-size: 0.72rem;
-    font-family: var(--pi-font-mono);
-    cursor: pointer;
-    outline: none;
-    min-width: 0;
-    text-overflow: ellipsis;
-  }
-
-  .git-repo-select:focus {
-    border-color: var(--accent);
-  }
-
-  .git-repo-select:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .git-toolbar-row {

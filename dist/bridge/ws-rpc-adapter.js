@@ -1112,66 +1112,6 @@ function parseGitDiff(cwd) {
 	}
 	return entries;
 }
-const SKIPPED_REPO_SCAN_DIRS = new Set([
-	"node_modules",
-	".cache",
-	".config",
-	"dist",
-	"build",
-	"target",
-	".tox",
-	"venv",
-	".venv",
-	"__pycache__",
-	".next",
-	".nuxt",
-	".parcel-cache",
-	".turbo"
-]);
-/**
-* Find all git repositories under a workspace root. Scans up to depth 2
-* looking for nested `.git` directories, which catches the common case
-* of projects that contain independent sub-repos (e.g. an `en-erp`
-* workspace inside an `odoo` checkout). Returns a deduplicated list
-* sorted with the workspace root first.
-*/
-function listGitRepos(cwd) {
-	const repos = [];
-	const seen = /* @__PURE__ */ new Set();
-	function tryAdd(candidate) {
-		const repo = readGitRepoState(candidate);
-		if (!repo) return;
-		if (seen.has(repo.repoRoot)) return;
-		seen.add(repo.repoRoot);
-		repos.push({
-			root: repo.repoRoot,
-			headLabel: repo.headLabel,
-			currentBranch: repo.currentBranch,
-			isDirty: repo.isDirty
-		});
-	}
-	tryAdd(cwd);
-	try {
-		const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
-		for (const entry of topEntries) {
-			if (!entry.isDirectory()) continue;
-			if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
-			if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-			const childPath = path.join(cwd, entry.name);
-			tryAdd(childPath);
-			try {
-				const grandEntries = fs.readdirSync(childPath, { withFileTypes: true });
-				for (const grand of grandEntries) {
-					if (!grand.isDirectory()) continue;
-					if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
-					if (grand.name.startsWith(".") && grand.name !== ".git") continue;
-					tryAdd(path.join(childPath, grand.name));
-				}
-			} catch {}
-		}
-	} catch {}
-	return repos;
-}
 function isTreeSettingsEntry(type) {
 	return TREE_SETTINGS_ENTRY_TYPES.has(type);
 }
@@ -3781,7 +3721,7 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "list_diff_entries": {
-				const cwd = command.repoRoot || normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				const cwd = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
 				if (!cwd) return {
 					id: correlationId,
 					type: "response",
@@ -3795,23 +3735,6 @@ var WsRpcAdapter = class {
 					command: "list_diff_entries",
 					success: true,
 					data: { entries: parseGitDiff(cwd) }
-				};
-			}
-			case "list_git_repos": {
-				const cwd = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
-				if (!cwd) return {
-					id: correlationId,
-					type: "response",
-					command: "list_git_repos",
-					success: false,
-					error: "No working directory for the active session"
-				};
-				return {
-					id: correlationId,
-					type: "response",
-					command: "list_git_repos",
-					success: true,
-					data: { repos: listGitRepos(cwd) }
 				};
 			}
 			case "switch_git_branch": {
@@ -4010,4 +3933,4 @@ var WsRpcAdapter = class {
 	}
 };
 //#endregion
-export { WsRpcAdapter, listGitRepos, parseGitDiff };
+export { WsRpcAdapter, parseGitDiff };

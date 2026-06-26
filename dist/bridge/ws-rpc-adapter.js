@@ -935,11 +935,7 @@ function parseDiffHunkHeader(line) {
 * deleted) and tracked line numbers.
 */
 function parseGitDiff(cwd) {
-	const repoRootResult = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
-	if (repoRootResult.error || repoRootResult.status !== 0) return [];
-	const repoRoot = readSpawnText(repoRootResult.stdout).trim();
-	if (!repoRoot) return [];
-	const diffResult = runGitCommand(repoRoot, [
+	const diffResult = runGitCommand(cwd, [
 		"diff",
 		"--no-color",
 		"--no-ext-diff",
@@ -947,151 +943,172 @@ function parseGitDiff(cwd) {
 	], 1e4);
 	if (diffResult.error || diffResult.status !== 0) return [];
 	const rawOutput = readSpawnText(diffResult.stdout);
-	if (!rawOutput) return [];
 	const entries = [];
-	const lines = rawOutput.split(/\r?\n/);
-	let i = 0;
-	while (i < lines.length) {
-		const line = lines[i] ?? "";
-		if (!line.startsWith("diff --git ")) {
-			i += 1;
-			continue;
-		}
-		i += 1;
-		let status = "modified";
-		let isBinary = false;
-		let oldPath;
-		let filePath = "";
-		let explicitModeSet = false;
+	if (rawOutput) {
+		const lines = rawOutput.split(/\r?\n/);
+		let i = 0;
 		while (i < lines.length) {
-			const headerLine = lines[i] ?? "";
-			if (headerLine.startsWith("diff --git ")) break;
-			if (headerLine.startsWith("@@ ")) break;
-			if (headerLine.startsWith("new file mode ")) {
-				status = "added";
-				explicitModeSet = true;
-			} else if (headerLine.startsWith("deleted file mode ")) {
-				status = "deleted";
-				explicitModeSet = true;
-			} else if (headerLine.startsWith("rename from ")) {
-				status = "renamed";
-				oldPath = headerLine.slice(12);
-			} else if (headerLine.startsWith("rename to ")) {
-				status = "renamed";
-				filePath = headerLine.slice(10);
-			} else if (headerLine.startsWith("Binary files ")) isBinary = true;
-			else if (headerLine.startsWith("similarity index ")) {
-				if (!explicitModeSet && status === "modified") status = "renamed";
-			}
-			i += 1;
-		}
-		if (!filePath) {
-			const headerMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
-			if (headerMatch) {
-				oldPath = oldPath ?? headerMatch[1];
-				filePath = headerMatch[2];
-			}
-		}
-		if (!filePath) continue;
-		const hunks = [];
-		let truncated = false;
-		while (i < lines.length) {
-			const bodyLine = lines[i] ?? "";
-			if (bodyLine.startsWith("diff --git ")) break;
-			if (!bodyLine.startsWith("@@ ")) {
-				i += 1;
-				continue;
-			}
-			const hunkHeader = parseDiffHunkHeader(bodyLine);
-			if (!hunkHeader) {
+			const line = lines[i] ?? "";
+			if (!line.startsWith("diff --git ")) {
 				i += 1;
 				continue;
 			}
 			i += 1;
-			const hunkLines = [];
-			let oldLineNo = hunkHeader.oldStart;
-			let newLineNo = hunkHeader.newStart;
-			let consumed = 0;
-			const expectedCount = hunkHeader.oldCount + hunkHeader.newCount;
-			while (i < lines.length && consumed < expectedCount) {
-				const hunkLine = lines[i] ?? "";
-				if (hunkLine.startsWith("diff --git ")) break;
-				if (hunkLine.startsWith("@@ ")) break;
-				if (hunkLine.startsWith("\\")) {
-					i += 1;
-					continue;
+			let status = "modified";
+			let isBinary = false;
+			let oldPath;
+			let filePath = "";
+			let explicitModeSet = false;
+			while (i < lines.length) {
+				const headerLine = lines[i] ?? "";
+				if (headerLine.startsWith("diff --git ")) break;
+				if (headerLine.startsWith("@@ ")) break;
+				if (headerLine.startsWith("new file mode ")) {
+					status = "added";
+					explicitModeSet = true;
+				} else if (headerLine.startsWith("deleted file mode ")) {
+					status = "deleted";
+					explicitModeSet = true;
+				} else if (headerLine.startsWith("rename from ")) {
+					status = "renamed";
+					oldPath = headerLine.slice(12);
+				} else if (headerLine.startsWith("rename to ")) {
+					status = "renamed";
+					filePath = headerLine.slice(10);
+				} else if (headerLine.startsWith("Binary files ")) isBinary = true;
+				else if (headerLine.startsWith("similarity index ")) {
+					if (!explicitModeSet && status === "modified") status = "renamed";
 				}
-				let content;
-				if (hunkLine.startsWith("+")) {
-					content = hunkLine.slice(1);
-					hunkLines.push({
-						type: "added",
-						content,
-						newLineNo
-					});
-					newLineNo += 1;
-					consumed += 1;
-					i += 1;
-					continue;
-				}
-				if (hunkLine.startsWith("-")) {
-					content = hunkLine.slice(1);
-					hunkLines.push({
-						type: "deleted",
-						content,
-						oldLineNo
-					});
-					oldLineNo += 1;
-					consumed += 1;
-					i += 1;
-					continue;
-				}
-				if (hunkLine.startsWith(" ")) {
-					content = hunkLine.slice(1);
-					hunkLines.push({
-						type: "context",
-						content,
-						oldLineNo,
-						newLineNo
-					});
-					oldLineNo += 1;
-					newLineNo += 1;
-					consumed += 1;
-					i += 1;
-					continue;
-				}
-				if (hunkLine === "") {
-					hunkLines.push({
-						type: "context",
-						content: "",
-						oldLineNo,
-						newLineNo
-					});
-					oldLineNo += 1;
-					newLineNo += 1;
-					consumed += 1;
-					i += 1;
-					continue;
-				}
-				break;
+				i += 1;
 			}
-			if (hunkLines.length > 0) hunks.push({
-				...hunkHeader,
-				lines: hunkLines
-			});
-			if (hunks.reduce((sum, h) => sum + h.lines.length, 0) >= PARSE_DIFF_MAX_LINES_PER_FILE) {
-				truncated = true;
-				break;
+			if (!filePath) {
+				const headerMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+				if (headerMatch) {
+					oldPath = oldPath ?? headerMatch[1];
+					filePath = headerMatch[2];
+				}
+			}
+			if (!filePath) continue;
+			const hunks = [];
+			let truncated = false;
+			while (i < lines.length) {
+				const bodyLine = lines[i] ?? "";
+				if (bodyLine.startsWith("diff --git ")) break;
+				if (!bodyLine.startsWith("@@ ")) {
+					i += 1;
+					continue;
+				}
+				const hunkHeader = parseDiffHunkHeader(bodyLine);
+				if (!hunkHeader) {
+					i += 1;
+					continue;
+				}
+				i += 1;
+				const hunkLines = [];
+				let oldLineNo = hunkHeader.oldStart;
+				let newLineNo = hunkHeader.newStart;
+				let consumed = 0;
+				const expectedCount = hunkHeader.oldCount + hunkHeader.newCount;
+				while (i < lines.length && consumed < expectedCount) {
+					const hunkLine = lines[i] ?? "";
+					if (hunkLine.startsWith("diff --git ")) break;
+					if (hunkLine.startsWith("@@ ")) break;
+					if (hunkLine.startsWith("\\")) {
+						i += 1;
+						continue;
+					}
+					let content;
+					if (hunkLine.startsWith("+")) {
+						content = hunkLine.slice(1);
+						hunkLines.push({
+							type: "added",
+							content,
+							newLineNo
+						});
+						newLineNo += 1;
+						consumed += 1;
+						i += 1;
+						continue;
+					}
+					if (hunkLine.startsWith("-")) {
+						content = hunkLine.slice(1);
+						hunkLines.push({
+							type: "deleted",
+							content,
+							oldLineNo
+						});
+						oldLineNo += 1;
+						consumed += 1;
+						i += 1;
+						continue;
+					}
+					if (hunkLine.startsWith(" ")) {
+						content = hunkLine.slice(1);
+						hunkLines.push({
+							type: "context",
+							content,
+							oldLineNo,
+							newLineNo
+						});
+						oldLineNo += 1;
+						newLineNo += 1;
+						consumed += 1;
+						i += 1;
+						continue;
+					}
+					if (hunkLine === "") {
+						hunkLines.push({
+							type: "context",
+							content: "",
+							oldLineNo,
+							newLineNo
+						});
+						oldLineNo += 1;
+						newLineNo += 1;
+						consumed += 1;
+						i += 1;
+						continue;
+					}
+					break;
+				}
+				if (hunkLines.length > 0) hunks.push({
+					...hunkHeader,
+					lines: hunkLines
+				});
+				if (hunks.reduce((sum, h) => sum + h.lines.length, 0) >= PARSE_DIFF_MAX_LINES_PER_FILE) {
+					truncated = true;
+					break;
+				}
+			}
+			const entry = {
+				path: filePath,
+				status,
+				hunks
+			};
+			if (status === "renamed" && oldPath) entry.oldPath = oldPath;
+			if (isBinary || truncated) entry.isBinary = isBinary || void 0;
+			entries.push(entry);
+		}
+	}
+	const untrackedResult = runGitCommand(cwd, [
+		"ls-files",
+		"--others",
+		"--exclude-standard"
+	], 5e3);
+	if (!untrackedResult.error && untrackedResult.status === 0) {
+		const untrackedOutput = readSpawnText(untrackedResult.stdout).trim();
+		if (untrackedOutput) {
+			const knownPaths = new Set(entries.map((e) => e.path));
+			for (const untrackedPath of untrackedOutput.split(/\r?\n/)) {
+				if (!untrackedPath) continue;
+				if (knownPaths.has(untrackedPath)) continue;
+				entries.push({
+					path: untrackedPath,
+					status: "untracked",
+					hunks: []
+				});
 			}
 		}
-		const entry = {
-			path: filePath,
-			status,
-			hunks
-		};
-		if (status === "renamed" && oldPath) entry.oldPath = oldPath;
-		if (isBinary || truncated) entry.isBinary = isBinary || void 0;
-		entries.push(entry);
 	}
 	return entries;
 }
@@ -3704,20 +3721,20 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "list_diff_entries": {
-				const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
-				if (!repoState) return {
+				const cwd = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				if (!cwd) return {
 					id: correlationId,
 					type: "response",
 					command: "list_diff_entries",
 					success: false,
-					error: "No git repository found for the active session"
+					error: "No working directory for the active session"
 				};
 				return {
 					id: correlationId,
 					type: "response",
 					command: "list_diff_entries",
 					success: true,
-					data: { entries: parseGitDiff(repoState.repoRoot) }
+					data: { entries: parseGitDiff(cwd) }
 				};
 			}
 			case "switch_git_branch": {

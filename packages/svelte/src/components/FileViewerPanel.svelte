@@ -273,11 +273,13 @@
           >
             {activeDiffEntry.status === "added"
               ? "A"
-              : activeDiffEntry.status === "deleted"
-                ? "D"
-                : activeDiffEntry.status === "renamed"
-                  ? "R"
-                  : "M"}
+              : activeDiffEntry.status === "untracked"
+                ? "U"
+                : activeDiffEntry.status === "deleted"
+                  ? "D"
+                  : activeDiffEntry.status === "renamed"
+                    ? "R"
+                    : "M"}
           </span>
         {/if}
         {#if isDirty}
@@ -847,6 +849,12 @@
     background: color-mix(in srgb, #8957e5 24%, transparent);
     color: #d2a8ff;
     border: 1px solid color-mix(in srgb, #8957e5 50%, transparent);
+  }
+
+  .status-untracked {
+    background: color-mix(in srgb, #d29922 24%, transparent);
+    color: #e3b341;
+    border: 1px solid color-mix(in srgb, #d29922 50%, transparent);
   }
 
   .file-viewer-confirm-backdrop {

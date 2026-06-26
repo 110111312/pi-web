@@ -5318,5 +5318,21 @@ describe("WsRpcAdapter", () => {
 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
+
+    it("includes untracked files with status untracked", async () => {
+      const tmpDir = setupRepo({ "README.md": "hello\n" });
+      // Create a new file that is not git-added.
+      fs.writeFileSync(path.join(tmpDir, "new-file.ts"), "new content\n");
+
+      const { parseGitDiff } = await import("../ws-rpc-adapter.js");
+      const entries = parseGitDiff(tmpDir);
+
+      const untracked = entries.find(e => e.path === "new-file.ts");
+      expect(untracked).toBeDefined();
+      expect(untracked?.status).toBe("untracked");
+      expect(untracked?.hunks).toHaveLength(0);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
   });
 });

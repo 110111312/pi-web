@@ -1745,9 +1745,9 @@ export function parseGitDiff(cwd: string): RpcDiffEntry[] {
   );
   if (diffResult.error || diffResult.status !== 0) return [];
   const rawOutput = readSpawnText(diffResult.stdout);
-  if (!rawOutput) return [];
 
   const entries: RpcDiffEntry[] = [];
+  if (rawOutput) {
   const lines = rawOutput.split(/\r?\n/);
   let i = 0;
 
@@ -1931,8 +1931,9 @@ export function parseGitDiff(cwd: string): RpcDiffEntry[] {
     if (isBinary || truncated) entry.isBinary = isBinary || undefined;
     entries.push(entry);
   }
+  } // end if (rawOutput)
 
-  // Also surface untracked files (not ignored) as "added" entries with empty
+  // Also surface untracked files (not ignored) as "untracked" entries with empty
   // hunks. `git diff` only shows tracked file changes, so without this users
   // would not see new files they just created in the working tree.
   const untrackedResult = runGitCommand(
@@ -1949,7 +1950,7 @@ export function parseGitDiff(cwd: string): RpcDiffEntry[] {
         if (knownPaths.has(untrackedPath)) continue;
         entries.push({
           path: untrackedPath,
-          status: "added",
+          status: "untracked" as RpcDiffFileStatus,
           hunks: [],
         });
       }

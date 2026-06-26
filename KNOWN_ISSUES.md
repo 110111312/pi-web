@@ -175,3 +175,4 @@ now correctly preserves the `source` field. The client re-fetches
   response payload. If `skill:` entries are present, the issue is
   client-side. If absent, the issue is server-side (pi's resource loader
   hasn't loaded skills yet, or the extension API doesn't expose them).
+-

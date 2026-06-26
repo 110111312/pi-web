@@ -2036,6 +2036,7 @@ function normalizeDiffEntry(value: unknown): RpcDiffEntry | null {
   if (typeof data.path !== "string" || !data.path) return null;
   const status =
     data.status === "added" ||
+    data.status === "untracked" ||
     data.status === "modified" ||
     data.status === "deleted" ||
     data.status === "renamed"

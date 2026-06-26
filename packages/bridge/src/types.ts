@@ -93,7 +93,7 @@ export interface RpcDiffHunk {
   lines: RpcDiffLine[];
 }
 
-export type RpcDiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+export type RpcDiffFileStatus = "added" | "untracked" | "modified" | "deleted" | "renamed";
 
 export interface RpcDiffEntry {
   path: string;

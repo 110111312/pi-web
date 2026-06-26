@@ -4,6 +4,8 @@
     RpcDiffFileStatus,
     RpcGitRepoEntry,
   } from "@pi-web/bridge/types";
+  import ChevronDown from "lucide-svelte/icons/chevron-down";
+  import ChevronRight from "lucide-svelte/icons/chevron-right";
   import GitBranch from "lucide-svelte/icons/git-branch";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
 
@@ -27,7 +29,8 @@
     onSelectRepo: (repoRoot: string | null) => void;
   } = $props();
 
-  let query = $state("");
+  let expandedTracked = $state(true);
+  let expandedUntracked = $state(false);
 
   function statusBadge(status: RpcDiffFileStatus): string {
     switch (status) {
@@ -45,49 +48,35 @@
     }
   }
 
-  let showRepoSelector = $derived(gitRepos.length >= 1);
+  let trackedEntries = $derived(
+    diffEntries.filter((e) => e.status !== "untracked"),
+  );
+  let untrackedEntries = $derived(
+    diffEntries.filter((e) => e.status === "untracked"),
+  );
 
-  function getFilteredEntries(): readonly RpcDiffEntry[] {
-    const trimmed = query.trim();
-    if (!trimmed) return diffEntries;
-    const q = trimmed.toLowerCase();
-    return diffEntries.filter(
-      (e) =>
-        e.path.toLowerCase().includes(q) ||
-        (e.oldPath?.toLowerCase().includes(q) ?? false),
-    );
-  }
+  // Default selected repo to the first one if not set.
+  let effectiveRepoRoot = $derived(
+    selectedRepoRoot ?? gitRepos[0]?.root ?? null,
+  );
 </script>
 
 <div class="git-rail">
-  {#if showRepoSelector}
+  {#if gitRepos.length >= 1}
     <div class="git-repo-selector">
       <label class="git-repo-label" for="git-repo-select">Repo</label>
       <select
         id="git-repo-select"
         class="git-repo-select"
-        value={selectedRepoRoot ?? ""}
+        value={effectiveRepoRoot ?? ""}
         disabled={gitReposLoading}
         onchange={(e) =>
-          onSelectRepo(
-            (e.currentTarget as HTMLSelectElement).value || null,
-          )}
+          onSelectRepo((e.currentTarget as HTMLSelectElement).value || null)}
       >
         {#each gitRepos as repo (repo.root)}
           <option value={repo.root}>{repo.label}</option>
         {/each}
       </select>
-    </div>
-  {/if}
-  <div class="git-toolbar">
-    <div class="git-toolbar-row">
-      <input
-        bind:value={query}
-        class="search-input"
-        type="search"
-        placeholder="Filter changes..."
-        aria-label="Filter changes"
-      />
       <button
         type="button"
         class="refresh-btn"
@@ -102,7 +91,25 @@
         />
       </button>
     </div>
-  </div>
+  {:else}
+    <div class="git-toolbar">
+      <div class="git-toolbar-row">
+        <button
+          type="button"
+          class="refresh-btn"
+          onclick={() => onRefresh()}
+          title="Refresh diff"
+          aria-label="Refresh diff"
+        >
+          <RefreshCw
+            size={13}
+            class={`refresh-icon${diffLoading ? " spin" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <div class="diff-scroll">
     {#if diffLoading && diffEntries.length === 0}
@@ -117,37 +124,96 @@
         <p class="empty-title">No unstaged changes</p>
         <p class="empty-copy">Working tree is clean.</p>
       </div>
-    {:else if getFilteredEntries().length === 0}
-      <div class="empty-state">
-        <p class="empty-title">No matches</p>
-        <p class="empty-copy">No files match "{query.trim()}".</p>
-      </div>
     {:else}
-      <ol class="diff-list">
-        {#each getFilteredEntries() as entry (entry.path)}
-          <li class="diff-entry">
-            <button
-              class="diff-entry-row"
-              type="button"
-              onclick={() => onOpenFileDiff(entry)}
-              title={entry.path}
+      {#if trackedEntries.length > 0}
+        <div class="diff-group">
+          <button
+            type="button"
+            class="diff-group-header"
+            onclick={() => (expandedTracked = !expandedTracked)}
+          >
+            {#if expandedTracked}
+              <ChevronDown size={12} aria-hidden="true" />
+            {:else}
+              <ChevronRight size={12} aria-hidden="true" />
+            {/if}
+            <span class="diff-group-label"
+              >Changes ({trackedEntries.length})</span
             >
-              <span
-                class={`status-badge status-${entry.status}`}
-                aria-hidden="true"
-              >
-                {statusBadge(entry.status)}
-              </span>
-              <span class="diff-entry-path">
-                {#if entry.oldPath && entry.oldPath !== entry.path}
-                  <span class="diff-entry-rename">{entry.oldPath} → </span>
-                {/if}
-                <span class="label">{entry.path}</span>
-              </span>
-            </button>
-          </li>
-        {/each}
-      </ol>
+          </button>
+          {#if expandedTracked}
+            <ol class="diff-list">
+              {#each trackedEntries as entry (entry.path)}
+                <li class="diff-entry">
+                  <button
+                    class="diff-entry-row"
+                    type="button"
+                    onclick={() => onOpenFileDiff(entry)}
+                    title={entry.path}
+                  >
+                    <span
+                      class={`status-badge status-${entry.status}`}
+                      aria-hidden="true"
+                    >
+                      {statusBadge(entry.status)}
+                    </span>
+                    <span class="diff-entry-path">
+                      {#if entry.oldPath && entry.oldPath !== entry.path}
+                        <span class="diff-entry-rename"
+                          >{entry.oldPath} →
+                        </span>
+                      {/if}
+                      <span class="label">{entry.path}</span>
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </div>
+      {/if}
+      {#if untrackedEntries.length > 0}
+        <div class="diff-group">
+          <button
+            type="button"
+            class="diff-group-header"
+            onclick={() => (expandedUntracked = !expandedUntracked)}
+          >
+            {#if expandedUntracked}
+              <ChevronDown size={12} aria-hidden="true" />
+            {:else}
+              <ChevronRight size={12} aria-hidden="true" />
+            {/if}
+            <span class="diff-group-label"
+              >Untracked ({untrackedEntries.length})</span
+            >
+          </button>
+          {#if expandedUntracked}
+            <ol class="diff-list">
+              {#each untrackedEntries as entry (entry.path)}
+                <li class="diff-entry">
+                  <button
+                    class="diff-entry-row"
+                    type="button"
+                    onclick={() => onOpenFileDiff(entry)}
+                    title={entry.path}
+                  >
+                    <span
+                      class="status-badge status-untracked"
+                      aria-hidden="true"
+                    >
+                      U
+                    </span>
+                    <span class="diff-entry-path">
+                      <span class="label">{entry.path}</span>
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -168,18 +234,11 @@
       var(--rail-bg);
   }
 
-  .git-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 0 3px 6px;
-  }
-
   .git-repo-selector {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 3px 0;
+    padding: 0 3px 8px;
   }
 
   .git-repo-label {
@@ -208,28 +267,17 @@
     cursor: not-allowed;
   }
 
+  .git-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 3px 6px;
+  }
+
   .git-toolbar-row {
     display: flex;
     align-items: center;
     gap: 4px;
-  }
-
-  .search-input {
-    height: 26px;
-    width: 100%;
-    flex: 1;
-    min-width: 0;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--panel) 88%, transparent);
-    color: var(--text);
-    padding: 0 8px;
-    font-size: 0.73rem;
-    outline: none;
-  }
-
-  .search-input:focus {
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   }
 
   .refresh-btn {
@@ -281,6 +329,41 @@
     scrollbar-width: thin;
   }
 
+  .diff-group {
+    margin-bottom: 4px;
+  }
+
+  .diff-group-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+
+  .diff-group-header:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .diff-group-label {
+    flex: 1;
+    text-align: left;
+  }
+
   .diff-list {
     list-style: none;
     margin: 0;
@@ -288,7 +371,7 @@
   }
 
   .diff-entry {
-    margin: 0 0 4px;
+    margin: 0 0 2px;
   }
 
   .diff-entry-row {

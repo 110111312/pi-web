@@ -523,6 +523,26 @@
   let hasRightSidebarContent = $derived(true);
   const hasFilesTab = $derived(hasRightSidebarContent);
 
+  $effect(() => {
+    // Measure the actual header height and set --mobile-header-offset
+    // so the sidebars position themselves flush below the header on mobile.
+    const measure = () => {
+      const header = document.querySelector('.app-header');
+      if (header) {
+        const height = header.getBoundingClientRect().height;
+        document.documentElement.style.setProperty('--mobile-header-offset', `${height}px`);
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    const header = document.querySelector('.app-header');
+    if (header) ro.observe(header);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--mobile-header-offset');
+    };
+  });
+
   let activeSessionEntry = $derived(
     displayedSessions.find(
       s =>
@@ -1579,7 +1599,7 @@
 
   @media (max-width: 900px) {
     .app-shell {
-      --mobile-header-offset: calc(env(safe-area-inset-top) + 50px);
+      --mobile-header-offset: calc(env(safe-area-inset-top) + 44px);
       display: flex;
       flex-direction: column;
     }

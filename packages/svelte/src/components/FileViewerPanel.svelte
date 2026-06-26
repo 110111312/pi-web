@@ -37,12 +37,16 @@
 
   let container = $state<HTMLDivElement | null>(null);
   let textarea = $state<HTMLTextAreaElement | null>(null);
+  let editorShell = $state<HTMLDivElement | null>(null);
   let file = $state<RpcWorkspaceFile | null>(null);
   let renderedHtml = $state("");
+  let editHighlightHtml = $state("");
+  let editHighlightVersion = 0;
   let loading = $state(false);
   let errorMessage = $state("");
   let loadVersion = 0;
   let renderVersion = 0;
+  let editHighlightTimer: ReturnType<typeof setTimeout> | undefined;
   let themeObserver: MutationObserver | undefined;
 
   // Edit mode state
@@ -70,6 +74,9 @@
     errorMessage = "";
     file = null;
     renderedHtml = "";
+    editHighlightHtml = "";
+    editHighlightVersion += 1;
+    clearTimeout(editHighlightTimer);
     // Reset edit state when loading a new file.
     isEditing = false;
     editedContent = "";
@@ -175,6 +182,17 @@
     }
   }
 
+  function syncEditorScroll() {
+    if (!textarea || !editorShell) return;
+    const highlight = editorShell.querySelector<HTMLDivElement>(
+      ".file-viewer-editor-highlight",
+    );
+    if (highlight) {
+      highlight.scrollTop = textarea.scrollTop;
+      highlight.scrollLeft = textarea.scrollLeft;
+    }
+  }
+
   function onEditorKeydown(event: KeyboardEvent) {
     if (event.key === "s" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -220,6 +238,8 @@
     return () => {
       loadVersion += 1;
       renderVersion += 1;
+      editHighlightVersion += 1;
+      clearTimeout(editHighlightTimer);
       themeObserver?.disconnect();
     };
   });
@@ -229,8 +249,28 @@
   });
 
   $effect(() => {
+    if (isEditing) return; // Skip read-mode rendering while editing
     void [file?.content, file?.path, activeLineNumber];
     void renderCode();
+  });
+
+  $effect(() => {
+    if (!isEditing || !file) {
+      editHighlightHtml = "";
+      return;
+    }
+    // Debounce: render highlighted version after a short delay to avoid
+    // re-rendering on every keystroke.
+    const version = editHighlightVersion;
+    const path = file.path;
+    const content = editedContent;
+    clearTimeout(editHighlightTimer);
+    editHighlightTimer = setTimeout(() => {
+      highlightCodeLinesHtml(content, path).then((html) => {
+        if (version !== editHighlightVersion) return;
+        editHighlightHtml = html;
+      });
+    }, 150);
   });
 </script>
 
@@ -314,7 +354,10 @@
     {/if}
 
     {#if isEditing}
-      <div class="file-viewer-editor-shell">
+      <div bind:this={editorShell} class="file-viewer-editor-shell">
+        <div class="file-viewer-editor-highlight" aria-hidden="true">
+          {@html editHighlightHtml}
+        </div>
         <textarea
           bind:this={textarea}
           class="file-viewer-editor"
@@ -327,6 +370,7 @@
             editedContent = (e.currentTarget as HTMLTextAreaElement).value;
           }}
           onkeydown={onEditorKeydown}
+          onscroll={syncEditorScroll}
         ></textarea>
       </div>
     {:else}
@@ -502,8 +546,7 @@
     color: var(--text-muted);
   }
 
-  .file-viewer-code-shell,
-  .file-viewer-editor-shell {
+  .file-viewer-code-shell {
     flex: 1;
     min-height: 0;
     overflow: auto;
@@ -512,12 +555,84 @@
     scrollbar-width: none;
   }
 
-  .file-viewer-code-shell::-webkit-scrollbar,
-  .file-viewer-editor-shell::-webkit-scrollbar {
+  .file-viewer-code-shell::-webkit-scrollbar {
     display: none;
   }
 
+  .file-viewer-editor-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+    background: var(--file-viewer-code-bg);
+  }
+
+  .file-viewer-editor-highlight {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+    padding: 8px 14px;
+    font-family: var(--pi-font-mono);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    white-space: pre;
+    tab-size: 2;
+    color: var(--text);
+  }
+
+  .file-viewer-editor-highlight :global(pre) {
+    margin: 0;
+    padding: 2px 0 6px;
+    overflow: visible;
+    background: transparent !important;
+  }
+
+  .file-viewer-editor-highlight :global(code) {
+    display: block;
+    min-width: max-content;
+    font-family: var(--pi-font-mono);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .file-viewer-editor-highlight :global(.code-line) {
+    display: block;
+    position: relative;
+    padding: 0 14px 0 62px;
+    white-space: pre;
+    line-height: 1.35;
+    background: transparent;
+  }
+
+  .file-viewer-editor-highlight :global(.code-line:empty)::after {
+    content: " ";
+    visibility: hidden;
+  }
+
+  .file-viewer-editor-highlight :global(.code-line)::before {
+    content: attr(data-line);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50px;
+    padding-right: 12px;
+    border-right: 1px solid var(--border);
+    color: var(--text-subtle);
+    text-align: right;
+    line-height: 1.35;
+    user-select: none;
+  }
+
   .file-viewer-editor {
+    position: relative;
+    z-index: 2;
     display: block;
     width: 100%;
     height: 100%;
@@ -526,14 +641,17 @@
     border: none;
     outline: none;
     resize: none;
-    background: var(--file-viewer-code-bg);
-    color: var(--text);
+    background: transparent;
+    color: transparent;
+    caret-color: var(--text);
     font-family: var(--pi-font-mono);
     font-size: 0.72rem;
     line-height: 1.35;
     white-space: pre;
     tab-size: 2;
     box-sizing: border-box;
+    overflow: auto;
+    scrollbar-width: thin;
   }
 
   .file-viewer-code {

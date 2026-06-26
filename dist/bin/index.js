@@ -1757,17 +1757,11 @@ function listDirectoryEntries(workspaceRoot, relativePath) {
 	for (const item of items) {
 		if (item.name === ".git") continue;
 		const entryRelativePath = trimmedRelative ? `${trimmedRelative}/${item.name}` : item.name;
-		if (item.isDirectory()) {
-			let hasChildren = true;
-			try {
-				hasChildren = fs.readdirSync(path.join(resolvedDir, item.name), { withFileTypes: true }).some((sub) => sub.name !== ".git");
-			} catch {}
-			entries.push({
-				path: entryRelativePath,
-				kind: "directory",
-				hasChildren
-			});
-		} else if (item.isFile()) entries.push({
+		if (item.isDirectory()) entries.push({
+			path: entryRelativePath,
+			kind: "directory"
+		});
+		else if (item.isFile()) entries.push({
 			path: entryRelativePath,
 			kind: "file"
 		});
@@ -1823,21 +1817,16 @@ function readWorkspaceFile(cwd, requestedPath) {
 	if (contentBuffer.includes(0)) return { error: "Binary file preview is not supported" };
 	const truncated = contentBuffer.length > MAX_WORKSPACE_FILE_BYTES;
 	const content = (truncated ? contentBuffer.subarray(0, MAX_WORKSPACE_FILE_BYTES) : contentBuffer).toString("utf8");
-	let mtime;
-	try {
-		mtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-	} catch {}
 	return {
 		path: resolved.displayPath,
 		absolutePath: resolved.resolvedPath,
 		content,
 		truncated,
 		totalBytes: contentBuffer.length,
-		lineCount: content.split(/\r?\n/).length,
-		...mtime ? { mtime } : {}
+		lineCount: content.split(/\r?\n/).length
 	};
 }
-function writeWorkspaceFile(cwd, requestedPath, content, expectedMtime) {
+function writeWorkspaceFile(cwd, requestedPath, content) {
 	if (content.includes("\0")) return { error: "Cannot write binary content" };
 	let resolved;
 	try {
@@ -1846,30 +1835,14 @@ function writeWorkspaceFile(cwd, requestedPath, content, expectedMtime) {
 		return { error: "Failed to resolve workspace file" };
 	}
 	if ("error" in resolved) return resolved;
-	if (expectedMtime) {
-		let currentMtime;
-		try {
-			currentMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-		} catch {
-			return { error: "File has been deleted since you last read it" };
-		}
-		if (currentMtime !== expectedMtime) return { error: "File has been modified externally. Please reload and try again." };
-	}
 	try {
 		fs.writeFileSync(resolved.resolvedPath, content, "utf8");
 	} catch (err) {
 		return { error: err instanceof Error ? `Failed to write file: ${err.message}` : "Failed to write file" };
 	}
-	let newMtime;
-	try {
-		newMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-	} catch {
-		return { error: "Failed to stat file after write" };
-	}
 	return {
 		path: resolved.displayPath,
 		absolutePath: resolved.resolvedPath,
-		mtime: newMtime,
 		bytesWritten: Buffer.byteLength(content, "utf8")
 	};
 }
@@ -4527,7 +4500,7 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "write_workspace_file": {
-				const result = writeWorkspaceFile(normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd(), command.path, command.content, command.expectedMtime);
+				const result = writeWorkspaceFile(normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd(), command.path, command.content);
 				if ("error" in result) return {
 					id: correlationId,
 					type: "response",

@@ -1219,12 +1219,21 @@
       return;
     }
 
-    if (!hasRightSidebarContent) {
-      outlineSidebarOpen = false;
-      return;
-    }
-
     ensureActiveRightSidebarTab();
+  });
+
+  $effect(() => {
+    // When the Files tab is active and entries are empty, ensure we fetch.
+    // This handles the case where entries were invalidated (e.g. workspace
+    // change) and the user hasn't manually triggered a refresh yet.
+    if (
+      outlineSidebarOpen &&
+      activeRightSidebarTabId === FILES_TAB_ID &&
+      displayedWorkspaceEntries.length === 0 &&
+      !displayedWorkspaceEntriesLoading
+    ) {
+      void bridge.fetchWorkspaceEntries().catch(() => {});
+    }
   });
 
   $effect(() => {

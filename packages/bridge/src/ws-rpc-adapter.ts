@@ -38,6 +38,7 @@ import type {
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcGitBranch,
+  RpcGitRepoInfo,
   RpcGitRepoState,
   RpcImageContent,
   RpcModel,
@@ -1958,6 +1959,82 @@ export function parseGitDiff(cwd: string): RpcDiffEntry[] {
   }
 
   return entries;
+}
+
+const SKIPPED_REPO_SCAN_DIRS = new Set([
+  "node_modules",
+  ".cache",
+  ".config",
+  "dist",
+  "build",
+  "target",
+  ".tox",
+  "venv",
+  ".venv",
+  "__pycache__",
+  ".next",
+  ".nuxt",
+  ".parcel-cache",
+  ".turbo",
+]);
+
+/**
+ * Find all git repositories under a workspace root. Scans up to depth 2
+ * looking for nested `.git` directories, which catches the common case
+ * of projects that contain independent sub-repos (e.g. an `en-erp`
+ * workspace inside an `odoo` checkout). Returns a deduplicated list
+ * sorted with the workspace root first.
+ */
+export function listGitRepos(cwd: string): RpcGitRepoInfo[] {
+  const repos: RpcGitRepoInfo[] = [];
+  const seen = new Set<string>();
+
+  function tryAdd(candidate: string): void {
+    const repo = readGitRepoState(candidate);
+    if (!repo) return;
+    if (seen.has(repo.repoRoot)) return;
+    seen.add(repo.repoRoot);
+    repos.push({
+      root: repo.repoRoot,
+      headLabel: repo.headLabel,
+      currentBranch: repo.currentBranch,
+      isDirty: repo.isDirty,
+    });
+  }
+
+  // Always include the workspace/session cwd itself.
+  tryAdd(cwd);
+
+  // Scan for nested repos at depth 1 and 2.
+  try {
+    const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
+    for (const entry of topEntries) {
+      if (!entry.isDirectory()) continue;
+      if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
+      if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+
+      const childPath = path.join(cwd, entry.name);
+      tryAdd(childPath);
+
+      try {
+        const grandEntries = fs.readdirSync(childPath, {
+          withFileTypes: true,
+        });
+        for (const grand of grandEntries) {
+          if (!grand.isDirectory()) continue;
+          if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
+          if (grand.name.startsWith(".") && grand.name !== ".git") continue;
+          tryAdd(path.join(childPath, grand.name));
+        }
+      } catch {
+        /* unreadable subdir, skip */
+      }
+    }
+  } catch {
+    /* unreadable cwd, skip */
+  }
+
+  return repos;
 }
 
 function isTreeSettingsEntry(type: string): boolean {
@@ -6456,6 +6533,7 @@ export class WsRpcAdapter {
 
       case "list_diff_entries": {
         const cwd =
+          command.repoRoot ||
           normalizeOptionalWorkspaceRoot(command.workspacePath) ||
           this.sessionRuntime.currentGitCwd();
         if (!cwd) {
@@ -6475,6 +6553,30 @@ export class WsRpcAdapter {
           command: "list_diff_entries" as const,
           success: true as const,
           data: { entries },
+        };
+      }
+
+      case "list_git_repos": {
+        const cwd =
+          normalizeOptionalWorkspaceRoot(command.workspacePath) ||
+          this.sessionRuntime.currentGitCwd();
+        if (!cwd) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_git_repos" as const,
+            success: false as const,
+            error: "No working directory for the active session",
+          };
+        }
+
+        const repos = listGitRepos(cwd);
+        return {
+          id: correlationId,
+          type: "response" as const,
+          command: "list_git_repos" as const,
+          success: true as const,
+          data: { repos },
         };
       }
 

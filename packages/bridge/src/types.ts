@@ -73,6 +73,13 @@ export interface RpcGitRepoState {
   branches: RpcGitBranch[];
 }
 
+export interface RpcGitRepoInfo {
+  root: string;
+  headLabel: string;
+  currentBranch?: string;
+  isDirty: boolean;
+}
+
 export type RpcDiffLineType = "context" | "added" | "deleted";
 
 export interface RpcDiffLine {
@@ -371,7 +378,8 @@ export interface RpcCommandMap {
   list_git_branches: {};
   switch_git_branch: { branchName: string };
   create_git_branch: { branchName: string };
-  list_diff_entries: { workspacePath?: string | null };
+  list_git_repos: { workspacePath?: string | null };
+  list_diff_entries: { workspacePath?: string | null; repoRoot?: string | null };
 
   /** Detached follow-up queue */
   dequeue_follow_up_message: { index: number };
@@ -731,6 +739,7 @@ export interface RpcResponseMap {
   list_git_branches: RpcGitRepoState;
   switch_git_branch: RpcGitRepoState;
   create_git_branch: RpcGitRepoState;
+  list_git_repos: { repos: RpcGitRepoInfo[] };
   list_diff_entries: { entries: RpcDiffEntry[] };
   dequeue_follow_up_message: { removed: RpcQueuedMessage };
 }

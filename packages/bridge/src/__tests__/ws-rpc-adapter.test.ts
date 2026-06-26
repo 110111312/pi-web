@@ -5335,4 +5335,85 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
+
+  describe("listGitRepos", () => {
+    function setupRepo(): string {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-repos-test-"),
+      );
+      runGit(tmpDir, ["init"]);
+      runGit(tmpDir, ["config", "user.name", "Pi Web"]);
+      runGit(tmpDir, ["config", "user.email", "pi-web@example.com"]);
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello\n");
+      runGit(tmpDir, ["add", "-A"]);
+      runGit(tmpDir, ["commit", "-m", "init"]);
+      return tmpDir;
+    }
+
+    it("returns the workspace root for a single-repo project", async () => {
+      const tmpDir = setupRepo();
+      const { listGitRepos } = await import("../ws-rpc-adapter.js");
+      const repos = listGitRepos(tmpDir);
+
+      expect(repos.length).toBeGreaterThanOrEqual(1);
+      expect(fs.realpathSync(repos[0]!.root)).toBe(fs.realpathSync(tmpDir));
+      expect(repos[0]?.headLabel.length).toBeGreaterThan(0);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("discovers a nested git repo at depth 1", async () => {
+      const tmpDir = setupRepo();
+      // Create a nested repo
+      const innerDir = path.join(tmpDir, "en-erp");
+      fs.mkdirSync(innerDir, { recursive: true });
+      runGit(innerDir, ["init"]);
+      runGit(innerDir, ["config", "user.name", "Pi Web"]);
+      runGit(innerDir, ["config", "user.email", "pi-web@example.com"]);
+      fs.writeFileSync(path.join(innerDir, "addons.txt"), "addon\n");
+      runGit(innerDir, ["add", "-A"]);
+      runGit(innerDir, ["commit", "-m", "init"]);
+
+      const { listGitRepos } = await import("../ws-rpc-adapter.js");
+      const repos = listGitRepos(tmpDir);
+
+      const realRoots = repos.map(r => fs.realpathSync(r.root));
+      expect(realRoots).toContain(fs.realpathSync(tmpDir));
+      expect(realRoots).toContain(fs.realpathSync(innerDir));
+      expect(repos.length).toBeGreaterThanOrEqual(2);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("skips ignored dirs like node_modules", async () => {
+      const tmpDir = setupRepo();
+      // Create a fake nested repo inside node_modules; should be ignored
+      const nodeModules = path.join(tmpDir, "node_modules", "some-pkg");
+      fs.mkdirSync(nodeModules, { recursive: true });
+      runGit(nodeModules, ["init"]);
+      runGit(nodeModules, ["config", "user.name", "Pi Web"]);
+      runGit(nodeModules, ["config", "user.email", "pi-web@example.com"]);
+      fs.writeFileSync(path.join(nodeModules, "x.txt"), "x\n");
+      runGit(nodeModules, ["add", "-A"]);
+      runGit(nodeModules, ["commit", "-m", "fake"]);
+
+      const { listGitRepos } = await import("../ws-rpc-adapter.js");
+      const repos = listGitRepos(tmpDir);
+
+      const realRoots = repos.map(r => fs.realpathSync(r.root));
+      expect(realRoots).toContain(fs.realpathSync(tmpDir));
+      expect(realRoots).not.toContain(fs.realpathSync(nodeModules));
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("returns empty array for a non-git directory", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-nogit-test-"),
+      );
+      const { listGitRepos } = await import("../ws-rpc-adapter.js");
+      expect(listGitRepos(tmpDir)).toEqual([]);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+  });
 });

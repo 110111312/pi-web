@@ -23,6 +23,7 @@ import type {
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcGitBranch,
+  RpcGitRepoInfo,
   RpcGitRepoState,
   RpcQueuedMessage,
   RpcQueueUpdateEvent,
@@ -323,6 +324,11 @@ let _diffLoading = $state(false);
 let diffEntriesRequest:
   | Promise<{ entries: RpcDiffEntry[] } | null>
   | null = null;
+let _gitRepos = $state<readonly RpcGitRepoInfo[]>([]);
+let _gitReposLoading = $state(false);
+let gitReposRequest:
+  | Promise<{ repos: RpcGitRepoInfo[] } | null>
+  | null = null;
 let _reconnectCount = $state(0);
 let _lastDisconnectReason = $state("");
 let _connectionError = $state("");
@@ -376,6 +382,8 @@ let gitBranchSwitching = $derived(_gitBranchSwitching);
 let diffEntries = $derived(_diffEntries);
 let diffLoaded = $derived(_diffLoaded);
 let diffLoading = $derived(_diffLoading);
+let gitRepos = $derived(_gitRepos);
+let gitReposLoading = $derived(_gitReposLoading);
 let reconnectCount = $derived(_reconnectCount);
 let lastDisconnectReason = $derived(_lastDisconnectReason);
 let connectionError = $derived(_connectionError);
@@ -1478,7 +1486,9 @@ function applySessionSnapshotResponse(
   if (prevSp !== getDisplayedSessionPath()) {
     resetGitRepoState();
     invalidateDiffEntries();
+    invalidateGitRepos();
     void fetchDiffEntries().catch(() => {});
+    void fetchGitRepos().catch(() => {});
     _isStreaming = false;
   }
   if (prevWp !== getWorkspaceEntriesContextKey()) invalidateWorkspaceEntries();
@@ -1899,7 +1909,9 @@ function applyGitRepoMutation(state: RpcGitRepoState | null) {
   // Diff entries are scoped to the current branch — invalidate the cache
   // and re-fetch so the UI reflects changes from the new HEAD.
   invalidateDiffEntries();
+  invalidateGitRepos();
   void fetchDiffEntries().catch(() => {});
+  void fetchGitRepos().catch(() => {});
 }
 
 export async function switchGitBranch(
@@ -2066,11 +2078,35 @@ function normalizeDiffEntries(value: unknown): RpcDiffEntry[] {
     .filter((entry): entry is RpcDiffEntry => entry !== null);
 }
 
+function normalizeGitRepos(value: unknown): RpcGitRepoInfo[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item: unknown) => {
+      if (!item || typeof item !== "object") return null;
+      const data = item as Partial<RpcGitRepoInfo>;
+      if (typeof data.root !== "string" || !data.root) return null;
+      const repo: RpcGitRepoInfo = {
+        root: data.root,
+        headLabel:
+          typeof data.headLabel === "string" && data.headLabel
+            ? data.headLabel
+            : data.root.split(/[\\/]/).pop() ?? data.root,
+        isDirty: data.isDirty === true,
+      };
+      if (typeof data.currentBranch === "string" && data.currentBranch) {
+        repo.currentBranch = data.currentBranch;
+      }
+      return repo;
+    })
+    .filter((repo): repo is RpcGitRepoInfo => repo !== null);
+}
+
 export async function fetchDiffEntries(
   force: boolean = false,
+  repoRoot?: string | null,
 ): Promise<readonly RpcDiffEntry[]> {
-  if (!force && _diffLoaded) return _diffEntries;
-  if (diffEntriesRequest && !force) {
+  if (!force && _diffLoaded && !repoRoot) return _diffEntries;
+  if (diffEntriesRequest && !force && !repoRoot) {
     const result = await diffEntriesRequest;
     return result?.entries ?? _diffEntries;
   }
@@ -2081,6 +2117,7 @@ export async function fetchDiffEntries(
   diffEntriesRequest = sendCommand({
     type: "list_diff_entries",
     ...(wp ? { workspacePath: wp } : {}),
+    ...(repoRoot ? { repoRoot } : {}),
   })
     .then(resp => {
       if (!resp.success) {
@@ -2118,8 +2155,10 @@ export async function fetchDiffEntries(
   return result?.entries ?? _diffEntries;
 }
 
-export function refreshDiffEntries(): Promise<readonly RpcDiffEntry[]> {
-  return fetchDiffEntries(true);
+export function refreshDiffEntries(
+  repoRoot?: string | null,
+): Promise<readonly RpcDiffEntry[]> {
+  return fetchDiffEntries(true, repoRoot);
 }
 
 export function invalidateDiffEntries() {
@@ -2127,6 +2166,52 @@ export function invalidateDiffEntries() {
   _diffLoaded = false;
   _diffLoading = false;
   diffEntriesRequest = null;
+}
+
+export async function fetchGitRepos(
+  force: boolean = false,
+): Promise<readonly RpcGitRepoInfo[]> {
+  if (!force && _gitRepos.length > 0) return _gitRepos;
+  if (gitReposRequest && !force) {
+    const result = await gitReposRequest;
+    return result?.repos ?? _gitRepos;
+  }
+  if (_connectionStatus !== "connected") return _gitRepos;
+
+  _gitReposLoading = true;
+  const wp = getDisplayedWorkspacePath();
+  gitReposRequest = sendCommand({
+    type: "list_git_repos",
+    ...(wp ? { workspacePath: wp } : {}),
+  })
+    .then(resp => {
+      _gitReposLoading = false;
+      if (!resp.success) {
+        return null;
+      }
+      const data = resp.data as { repos?: unknown } | undefined;
+      const repos = normalizeGitRepos(data?.repos);
+      _gitRepos = Object.freeze(repos);
+      return { repos: repos as RpcGitRepoInfo[] };
+    })
+    .catch(() => {
+      _gitReposLoading = false;
+      gitReposRequest = null;
+      return null;
+    });
+
+  const result = await gitReposRequest;
+  return result?.repos ?? _gitRepos;
+}
+
+export function refreshGitRepos(): Promise<readonly RpcGitRepoInfo[]> {
+  return fetchGitRepos(true);
+}
+
+export function invalidateGitRepos() {
+  _gitRepos = Object.freeze([]);
+  _gitReposLoading = false;
+  gitReposRequest = null;
 }
 
 export async function abortGeneration() {
@@ -2388,6 +2473,7 @@ function handleResponse(payload: RpcResponse) {
           if (prevSp !== getDisplayedSessionPath()) {
             resetGitRepoState();
             invalidateDiffEntries();
+            invalidateGitRepos();
           }
           if (prevWp !== getWorkspaceEntriesContextKey())
             invalidateWorkspaceEntries();
@@ -2650,7 +2736,9 @@ function handleEvent(payload: RpcBridgeEvent) {
       // Same reasoning for diff entries: agent turns often produce file
       // changes that should be reflected in the diff view.
       invalidateDiffEntries();
+      invalidateGitRepos();
       void fetchDiffEntries().catch(() => {});
+      void fetchGitRepos().catch(() => {});
       break;
     }
     case "model_select": {
@@ -2950,6 +3038,12 @@ export function initBridge() {
     get diffLoading() {
       return diffLoading;
     },
+    get gitRepos() {
+      return gitRepos;
+    },
+    get gitReposLoading() {
+      return gitReposLoading;
+    },
     get pendingMessageCount() {
       return pendingMessageCount;
     },
@@ -3004,6 +3098,8 @@ export function initBridge() {
     createGitBranch,
     fetchDiffEntries,
     refreshDiffEntries,
+    fetchGitRepos,
+    refreshGitRepos,
     switchSession,
     newSession,
     registerWorkspace,

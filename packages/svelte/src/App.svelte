@@ -1318,6 +1318,7 @@
     // pointing at a path that no longer belongs to the active workspace.
     void displayedActiveSessionPath;
     selectedGitRepoRoot = null;
+    bridge.invalidateGitRepos();
   });
 
   $effect(() => {

@@ -29,7 +29,6 @@
     onSelectRepo: (repoRoot: string | null) => void;
   } = $props();
 
-  let query = $state("");
   let expandedTracked = $state(true);
   let expandedUntracked = $state(false);
 
@@ -50,17 +49,6 @@
   }
 
   let showRepoSelector = $derived(gitRepos.length >= 1);
-
-  function getFilteredEntries(): readonly RpcDiffEntry[] {
-    const trimmed = query.trim();
-    if (!trimmed) return diffEntries;
-    const q = trimmed.toLowerCase();
-    return diffEntries.filter(
-      (e) =>
-        e.path.toLowerCase().includes(q) ||
-        (e.oldPath?.toLowerCase().includes(q) ?? false),
-    );
-  }
 </script>
 
 <div class="git-rail">
@@ -70,7 +58,7 @@
       <select
         id="git-repo-select"
         class="git-repo-select"
-        value={selectedRepoRoot ?? gitRepos[0]?.root ?? ""}
+        value={selectedRepoRoot ?? ""}
         disabled={gitReposLoading}
         onchange={(e) =>
           onSelectRepo(
@@ -83,31 +71,6 @@
       </select>
     </div>
   {/if}
-  <div class="git-toolbar">
-    <div class="git-toolbar-row">
-      <input
-        bind:value={query}
-        class="search-input"
-        type="search"
-        placeholder="Filter changes..."
-        aria-label="Filter changes"
-      />
-      <button
-        type="button"
-        class="refresh-btn"
-        onclick={() => onRefresh()}
-        title="Refresh diff"
-        aria-label="Refresh diff"
-      >
-        <RefreshCw
-          size={13}
-          class={`refresh-icon${diffLoading ? " spin" : ""}`}
-          aria-hidden="true"
-        />
-      </button>
-    </div>
-  </div>
-
   <div class="diff-scroll">
     {#if diffLoading && diffEntries.length === 0}
       <div class="empty-state">
@@ -120,11 +83,6 @@
         </span>
         <p class="empty-title">No unstaged changes</p>
         <p class="empty-copy">Working tree is clean.</p>
-      </div>
-    {:else if getFilteredEntries().length === 0}
-      <div class="empty-state">
-        <p class="empty-title">No matches</p>
-        <p class="empty-copy">No files match "{query.trim()}".</p>
       </div>
     {:else}
       <div class="diff-group">
@@ -143,7 +101,7 @@
         </button>
         {#if expandedTracked}
           <ol class="diff-list">
-            {#each getFilteredEntries() as entry (entry.path)}
+            {#each diffEntries as entry (entry.path)}
               {#if entry.status !== "untracked"}
                 <li class="diff-entry">
                   <button
@@ -171,7 +129,7 @@
           </ol>
         {/if}
       </div>
-      {#if getFilteredEntries().some((e) => e.status === "untracked")}
+      {#if diffEntries.some((e) => e.status === "untracked")}
         <div class="diff-group">
           <button
             type="button"
@@ -188,7 +146,7 @@
           </button>
           {#if expandedUntracked}
             <ol class="diff-list">
-              {#each getFilteredEntries() as entry (entry.path)}
+              {#each diffEntries as entry (entry.path)}
                 {#if entry.status === "untracked"}
                   <li class="diff-entry">
                     <button
@@ -231,13 +189,6 @@
       var(--rail-bg);
   }
 
-  .git-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 0 3px 6px;
-  }
-
   .git-repo-selector {
     display: flex;
     align-items: center;
@@ -269,30 +220,6 @@
   .git-repo-select:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-
-  .git-toolbar-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .search-input {
-    height: 26px;
-    width: 100%;
-    flex: 1;
-    min-width: 0;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--panel) 88%, transparent);
-    color: var(--text);
-    padding: 0 8px;
-    font-size: 0.73rem;
-    outline: none;
-  }
-
-  .search-input:focus {
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   }
 
   .refresh-btn {

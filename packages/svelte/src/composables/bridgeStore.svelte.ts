@@ -325,7 +325,6 @@ let diffEntriesRequest:
   | Promise<{ entries: RpcDiffEntry[] } | null>
   | null = null;
 let _gitRepos = $state<readonly RpcGitRepoInfo[]>([]);
-let _gitReposLoaded = $state(false);
 let _gitReposLoading = $state(false);
 let gitReposRequest:
   | Promise<{ repos: RpcGitRepoInfo[] } | null>
@@ -384,7 +383,6 @@ let diffEntries = $derived(_diffEntries);
 let diffLoaded = $derived(_diffLoaded);
 let diffLoading = $derived(_diffLoading);
 let gitRepos = $derived(_gitRepos);
-let gitReposLoaded = $derived(_gitReposLoaded);
 let gitReposLoading = $derived(_gitReposLoading);
 let reconnectCount = $derived(_reconnectCount);
 let lastDisconnectReason = $derived(_lastDisconnectReason);
@@ -2173,7 +2171,7 @@ export function invalidateDiffEntries() {
 export async function fetchGitRepos(
   force: boolean = false,
 ): Promise<readonly RpcGitRepoInfo[]> {
-  if (!force && _gitReposLoaded) return _gitRepos;
+  if (!force && _gitRepos.length > 0) return _gitRepos;
   if (gitReposRequest && !force) {
     const result = await gitReposRequest;
     return result?.repos ?? _gitRepos;
@@ -2188,7 +2186,6 @@ export async function fetchGitRepos(
   })
     .then(resp => {
       _gitReposLoading = false;
-      _gitReposLoaded = true;
       if (!resp.success) {
         return null;
       }
@@ -2199,7 +2196,6 @@ export async function fetchGitRepos(
     })
     .catch(() => {
       _gitReposLoading = false;
-      _gitReposLoaded = true; // Mark as loaded even on failure to prevent infinite retry
       gitReposRequest = null;
       return null;
     });
@@ -2214,7 +2210,6 @@ export function refreshGitRepos(): Promise<readonly RpcGitRepoInfo[]> {
 
 export function invalidateGitRepos() {
   _gitRepos = Object.freeze([]);
-  _gitReposLoaded = false;
   _gitReposLoading = false;
   gitReposRequest = null;
 }
@@ -3045,9 +3040,6 @@ export function initBridge() {
     },
     get gitRepos() {
       return gitRepos;
-    },
-    get gitReposLoaded() {
-      return gitReposLoaded;
     },
     get gitReposLoading() {
       return gitReposLoading;

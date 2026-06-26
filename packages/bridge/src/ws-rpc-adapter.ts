@@ -1990,13 +1990,6 @@ export function listGitRepos(cwd: string): RpcGitRepoInfo[] {
   const seen = new Set<string>();
 
   function tryAdd(candidate: string): void {
-    // Quick check: skip directories that don't contain a .git entry.
-    // This avoids expensive git commands for clearly non-repo directories.
-    try {
-      fs.accessSync(path.join(candidate, ".git"));
-    } catch {
-      return;
-    }
     const repo = readGitRepoState(candidate);
     if (!repo) return;
     if (seen.has(repo.repoRoot)) return;
@@ -2012,7 +2005,7 @@ export function listGitRepos(cwd: string): RpcGitRepoInfo[] {
   // Always include the workspace/session cwd itself.
   tryAdd(cwd);
 
-  // Scan for nested repos at depth 1 only (skip depth 2 — too slow).
+  // Scan for nested repos at depth 1 and 2.
   try {
     const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
     for (const entry of topEntries) {
@@ -2022,6 +2015,20 @@ export function listGitRepos(cwd: string): RpcGitRepoInfo[] {
 
       const childPath = path.join(cwd, entry.name);
       tryAdd(childPath);
+
+      try {
+        const grandEntries = fs.readdirSync(childPath, {
+          withFileTypes: true,
+        });
+        for (const grand of grandEntries) {
+          if (!grand.isDirectory()) continue;
+          if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
+          if (grand.name.startsWith(".") && grand.name !== ".git") continue;
+          tryAdd(path.join(childPath, grand.name));
+        }
+      } catch {
+        /* unreadable subdir, skip */
+      }
     }
   } catch {
     /* unreadable cwd, skip */

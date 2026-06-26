@@ -1,6 +1,10 @@
 <script lang="ts">
-  import type { RpcDirectoryEntry } from "@pi-web/bridge/types";
+  import type {
+    RpcDirectoryEntry,
+    RpcDiffEntry,
+  } from "@pi-web/bridge/types";
   import FileBrowserPanel from "../components/FileBrowserPanel.svelte";
+  import GitPanel from "../components/GitPanel.svelte";
   import SessionTreeRail from "../components/SessionTreeRail.svelte";
   import type { TreeEntry } from "../composables/bridgeStore.svelte";
 
@@ -10,40 +14,53 @@
     sessionPath = null as string | null,
     hasTreeTab = false,
     hasFilesTab = false,
+    hasGitTab = false,
     activeTabId = "",
     onFetchDirectory = (_: string) =>
       Promise.resolve([] as RpcDirectoryEntry[]),
+    diffEntries = [] as readonly RpcDiffEntry[],
+    diffLoading = false,
     onCloseSidebar = () => {},
     onSelectTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
     onOpenFile = (_: string) => {},
     onRefresh,
+    onRefreshDiff = () => {},
   }: {
     treeEntries?: readonly TreeEntry[];
     sidebarOpen?: boolean;
     sessionPath?: string | null;
     hasTreeTab?: boolean;
     hasFilesTab?: boolean;
+    hasGitTab?: boolean;
     activeTabId?: string;
     onFetchDirectory?: (path: string) => Promise<RpcDirectoryEntry[]>;
+    diffEntries?: readonly RpcDiffEntry[];
+    diffLoading?: boolean;
     onCloseSidebar?: () => void;
     onSelectTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
     onOpenFile?: (path: string) => void;
     onRefresh?: () => void;
+    onRefreshDiff?: () => void;
   } = $props();
 
   let tabs = $derived([
     ...(hasTreeTab ? [{ id: "tree" }] : []),
     ...(hasFilesTab ? [{ id: "files" }] : []),
+    ...(hasGitTab ? [{ id: "git" }] : []),
   ]);
 
   function specialTabLabel(tabId: string): string {
-    return tabId === "tree" ? "Tree" : "Files";
+    if (tabId === "tree") return "Tree";
+    if (tabId === "git") return "Git";
+    return "Files";
   }
 
   function specialTabTitle(tabId: string): string {
-    return tabId === "tree" ? "Session tree" : "Files";
+    if (tabId === "tree") return "Session tree";
+    if (tabId === "git") return "Git diff";
+    return "Files";
   }
 </script>
 
@@ -98,6 +115,20 @@
             {onFetchDirectory}
             {onOpenFile}
             {onRefresh}
+          />
+        </div>
+      {:else if activeTabId === "git" && hasGitTab}
+        <div
+          id="right-rail-panel-git"
+          class="tab-panel"
+          role="tabpanel"
+          aria-labelledby="right-rail-tab-git"
+        >
+          <GitPanel
+            {diffEntries}
+            {diffLoading}
+            {onOpenFile}
+            onRefresh={onRefreshDiff}
           />
         </div>
       {/if}

@@ -55,6 +55,7 @@
 
   const TREE_TAB_ID = "tree";
   const FILES_TAB_ID = "files";
+  const GIT_TAB_ID = "git";
 
   let sidebarOpen = $state(false);
   let leftSidebarCollapsed = $state(false);
@@ -520,6 +521,7 @@
   // file browsing regardless of whether a session has an outline.
   let hasRightSidebarContent = $derived(true);
   const hasFilesTab = $derived(hasRightSidebarContent);
+  const hasGitTab = $derived(hasRightSidebarContent);
 
   $effect(() => {
     // Measure the actual header height and set --mobile-header-offset
@@ -587,12 +589,15 @@
 
   function defaultRightSidebarTabId(): RightSidebarTabId | null {
     if (displayedHasSessionOutline) return TREE_TAB_ID;
-    return FILES_TAB_ID;
+    if (hasFilesTab) return FILES_TAB_ID;
+    if (hasGitTab) return GIT_TAB_ID;
+    return null;
   }
 
   function ensureActiveRightSidebarTab() {
     if (activeRightSidebarTabId === TREE_TAB_ID && displayedHasSessionOutline) return;
     if (activeRightSidebarTabId === FILES_TAB_ID) return;
+    if (activeRightSidebarTabId === GIT_TAB_ID) return;
 
     activeRightSidebarTabId = defaultRightSidebarTabId() ?? TREE_TAB_ID;
   }
@@ -917,10 +922,17 @@
     if (tabId === FILES_TAB_ID) {
       void bridge.fetchWorkspaceEntries().catch(() => {});
     }
+    if (tabId === GIT_TAB_ID) {
+      void bridge.fetchDiffEntries().catch(() => {});
+    }
   }
 
   function handleRefreshWorkspaceEntries() {
     void bridge.refreshWorkspaceEntries().catch(() => {});
+  }
+
+  function handleRefreshDiffEntries() {
+    void bridge.refreshDiffEntries().catch(() => {});
   }
 
   function fetchDirectoryEntries(path: string): Promise<RpcDirectoryEntry[]> {
@@ -1485,13 +1497,17 @@
       sessionPath={displayedActiveSessionPath}
       hasTreeTab={true}
       {hasFilesTab}
+      {hasGitTab}
       activeTabId={activeRightSidebarTabId}
       onFetchDirectory={fetchDirectoryEntries}
+      diffEntries={bridge.diffEntries}
+      diffLoading={bridge.diffLoading}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
       onSelectTreeEntry={handleTreeEntrySelect}
       onOpenFile={(path: string) => openFileViewer(path, 1)}
       onRefresh={handleRefreshWorkspaceEntries}
+      onRefreshDiff={handleRefreshDiffEntries}
     />
   {/if}
 

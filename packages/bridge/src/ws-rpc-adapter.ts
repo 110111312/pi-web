@@ -1776,14 +1776,29 @@ export function listGitRepos(cwd: string): RpcGitRepoEntry[] {
   // Always include the workspace/session cwd itself.
   tryAdd(cwd);
 
-  // Scan direct children for nested repos at depth 1.
+  // Scan direct children and grandchildren for nested repos (depth 1 and 2).
   try {
     const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
     for (const entry of topEntries) {
       if (!entry.isDirectory()) continue;
       if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
       if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-      tryAdd(path.join(cwd, entry.name));
+
+      const childPath = path.join(cwd, entry.name);
+      tryAdd(childPath);
+
+      // Depth 2: scan grandchildren.
+      try {
+        const grandEntries = fs.readdirSync(childPath, { withFileTypes: true });
+        for (const grand of grandEntries) {
+          if (!grand.isDirectory()) continue;
+          if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
+          if (grand.name.startsWith(".") && grand.name !== ".git") continue;
+          tryAdd(path.join(childPath, grand.name));
+        }
+      } catch {
+        /* unreadable subdir, skip */
+      }
     }
   } catch {
     /* unreadable cwd, skip */

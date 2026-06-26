@@ -45,7 +45,7 @@
     }
   }
 
-  let showRepoSelector = $derived(gitRepos.length > 1);
+  let showRepoSelector = $derived(gitRepos.length >= 1);
 
   function getFilteredEntries(): readonly RpcDiffEntry[] {
     const trimmed = query.trim();

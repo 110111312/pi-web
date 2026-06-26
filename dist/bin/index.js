@@ -1992,7 +1992,17 @@ function listGitRepos(cwd) {
 			if (!entry.isDirectory()) continue;
 			if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
 			if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-			tryAdd(path.join(cwd, entry.name));
+			const childPath = path.join(cwd, entry.name);
+			tryAdd(childPath);
+			try {
+				const grandEntries = fs.readdirSync(childPath, { withFileTypes: true });
+				for (const grand of grandEntries) {
+					if (!grand.isDirectory()) continue;
+					if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
+					if (grand.name.startsWith(".") && grand.name !== ".git") continue;
+					tryAdd(path.join(childPath, grand.name));
+				}
+			} catch {}
 		}
 	} catch {}
 	return repos;

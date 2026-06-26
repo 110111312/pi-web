@@ -73,6 +73,38 @@ export interface RpcGitRepoState {
   branches: RpcGitBranch[];
 }
 
+export type RpcDiffLineType = "context" | "added" | "deleted";
+
+export interface RpcDiffLine {
+  type: RpcDiffLineType;
+  /** Line text WITHOUT the +/-/space prefix. */
+  content: string;
+  /** undefined for added lines. */
+  oldLineNo?: number;
+  /** undefined for deleted lines. */
+  newLineNo?: number;
+}
+
+export interface RpcDiffHunk {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  lines: RpcDiffLine[];
+}
+
+export type RpcDiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface RpcDiffEntry {
+  path: string;
+  status: RpcDiffFileStatus;
+  /** Only populated when status is "renamed". */
+  oldPath?: string;
+  /** True when git reports the file as binary. */
+  isBinary?: boolean;
+  hunks: RpcDiffHunk[];
+}
+
 /** Map of RPC command types to their specific payload shapes. */
 export interface RpcModel {
   id: string;
@@ -339,6 +371,7 @@ export interface RpcCommandMap {
   list_git_branches: {};
   switch_git_branch: { branchName: string };
   create_git_branch: { branchName: string };
+  list_diff_entries: {};
 
   /** Detached follow-up queue */
   dequeue_follow_up_message: { index: number };
@@ -698,6 +731,7 @@ export interface RpcResponseMap {
   list_git_branches: RpcGitRepoState;
   switch_git_branch: RpcGitRepoState;
   create_git_branch: RpcGitRepoState;
+  list_diff_entries: { entries: RpcDiffEntry[] };
   dequeue_follow_up_message: { removed: RpcQueuedMessage };
 }
 

@@ -30,6 +30,11 @@ import type {
   RpcCommand,
   RpcCompactionEndEvent,
   RpcCompactionStartEvent,
+  RpcDiffEntry,
+  RpcDiffFileStatus,
+  RpcDiffHunk,
+  RpcDiffLine,
+  RpcDiffLineType,
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcGitBranch,
@@ -1692,6 +1697,244 @@ function readGitRepoState(
     isDirty,
     branches,
   };
+}
+
+/**
+ * Maximum number of diff lines to emit per file. If a single file has more
+ * lines than this across all hunks, the parser truncates to keep payloads
+ * reasonable. Files at the limit can still be huge — this is a guardrail,
+ * not a guarantee.
+ */
+const PARSE_DIFF_MAX_LINES_PER_FILE = 5000;
+
+const HUNK_HEADER_REGEX = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+function parseDiffHunkHeader(line: string): {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+} | null {
+  const match = HUNK_HEADER_REGEX.exec(line);
+  if (!match) return null;
+  // When count is omitted (e.g. `@@ -10 +10,5 @@`), it defaults to 1.
+  return {
+    oldStart: Number(match[1]),
+    oldCount: match[2] !== undefined ? Number(match[2]) : 1,
+    newStart: Number(match[3]),
+    newCount: match[4] !== undefined ? Number(match[4]) : 1,
+  };
+}
+
+/**
+ * Parse `git diff --no-color` output into structured diff entries.
+ *
+ * Returns an empty array if the directory is not a git repository, git is
+ * unavailable, or the working tree has no unstaged changes. Each file's
+ * diff is parsed into a sequence of hunks with typed lines (context/added/
+ * deleted) and tracked line numbers.
+ */
+export function parseGitDiff(cwd: string): RpcDiffEntry[] {
+  const repoRootResult = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
+  if (repoRootResult.error || repoRootResult.status !== 0) return [];
+  const repoRoot = readSpawnText(repoRootResult.stdout).trim();
+  if (!repoRoot) return [];
+
+  const diffResult = runGitCommand(
+    repoRoot,
+    ["diff", "--no-color", "--no-ext-diff", "--unified=3"],
+    10000,
+  );
+  if (diffResult.error || diffResult.status !== 0) return [];
+  const rawOutput = readSpawnText(diffResult.stdout);
+  if (!rawOutput) return [];
+
+  const entries: RpcDiffEntry[] = [];
+  const lines = rawOutput.split(/\r?\n/);
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+
+    if (!line.startsWith("diff --git ")) {
+      i += 1;
+      continue;
+    }
+
+    // Skip the entire file header block until we hit the first hunk header
+    // or end of file. Track mode, rename, and binary hints along the way.
+    i += 1;
+    let status: RpcDiffFileStatus = "modified";
+    let isBinary = false;
+    let oldPath: string | undefined;
+    let filePath = "";
+    let explicitModeSet = false;
+
+    while (i < lines.length) {
+      const headerLine = lines[i] ?? "";
+      if (headerLine.startsWith("diff --git ")) break;
+      if (headerLine.startsWith("@@ ")) break;
+
+      if (headerLine.startsWith("new file mode ")) {
+        status = "added";
+        explicitModeSet = true;
+      } else if (headerLine.startsWith("deleted file mode ")) {
+        status = "deleted";
+        explicitModeSet = true;
+      } else if (headerLine.startsWith("rename from ")) {
+        status = "renamed";
+        oldPath = headerLine.slice("rename from ".length);
+      } else if (headerLine.startsWith("rename to ")) {
+        status = "renamed";
+        filePath = headerLine.slice("rename to ".length);
+      } else if (headerLine.startsWith("Binary files ")) {
+        isBinary = true;
+      } else if (headerLine.startsWith("similarity index ")) {
+        // Rename+similarity — already detected via rename from/to.
+        if (!explicitModeSet && status === "modified") {
+          status = "renamed";
+        }
+      }
+      i += 1;
+    }
+
+    if (!filePath) {
+      // Extract path from `diff --git a/<path> b/<path>` when not set by
+      // a rename. Use the b/ side as the destination path.
+      const headerMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+      if (headerMatch) {
+        oldPath = oldPath ?? headerMatch[1];
+        filePath = headerMatch[2];
+      }
+    }
+
+    if (!filePath) continue;
+
+    const hunks: RpcDiffHunk[] = [];
+    let truncated = false;
+
+    while (i < lines.length) {
+      const bodyLine = lines[i] ?? "";
+      if (bodyLine.startsWith("diff --git ")) break;
+
+      if (!bodyLine.startsWith("@@ ")) {
+        // Skip `--- a/...`, `+++ b/...`, `index ...`, and other metadata
+        // lines between hunks.
+        i += 1;
+        continue;
+      }
+
+      const hunkHeader = parseDiffHunkHeader(bodyLine);
+      if (!hunkHeader) {
+        i += 1;
+        continue;
+      }
+      i += 1;
+
+      const hunkLines: RpcDiffLine[] = [];
+      let oldLineNo = hunkHeader.oldStart;
+      let newLineNo = hunkHeader.newStart;
+      let consumed = 0;
+      const expectedCount = hunkHeader.oldCount + hunkHeader.newCount;
+
+      while (i < lines.length && consumed < expectedCount) {
+        const hunkLine = lines[i] ?? "";
+        if (hunkLine.startsWith("diff --git ")) break;
+        if (hunkLine.startsWith("@@ ")) break;
+
+        // `\ No newline at end of file` — skip, don't count as a hunk line.
+        if (hunkLine.startsWith("\\")) {
+          i += 1;
+          continue;
+        }
+
+        let lineType: RpcDiffLineType;
+        let content: string;
+
+        if (hunkLine.startsWith("+")) {
+          lineType = "added";
+          content = hunkLine.slice(1);
+          hunkLines.push({
+            type: "added",
+            content,
+            newLineNo,
+          });
+          newLineNo += 1;
+          consumed += 1;
+          i += 1;
+          continue;
+        }
+        if (hunkLine.startsWith("-")) {
+          lineType = "deleted";
+          content = hunkLine.slice(1);
+          hunkLines.push({
+            type: "deleted",
+            content,
+            oldLineNo,
+          });
+          oldLineNo += 1;
+          consumed += 1;
+          i += 1;
+          continue;
+        }
+        if (hunkLine.startsWith(" ")) {
+          content = hunkLine.slice(1);
+          hunkLines.push({
+            type: "context",
+            content,
+            oldLineNo,
+            newLineNo,
+          });
+          oldLineNo += 1;
+          newLineNo += 1;
+          consumed += 1;
+          i += 1;
+          continue;
+        }
+        // Empty line inside a hunk (zero-length context line) — git
+        // emits these for blank lines. Only count it once toward the
+        // hunk's expected size.
+        if (hunkLine === "") {
+          hunkLines.push({
+            type: "context",
+            content: "",
+            oldLineNo,
+            newLineNo,
+          });
+          oldLineNo += 1;
+          newLineNo += 1;
+          consumed += 1;
+          i += 1;
+          continue;
+        }
+
+        // Unrecognized line within a hunk — bail out of this hunk to
+        // avoid an infinite loop.
+        break;
+      }
+
+      if (hunkLines.length > 0) {
+        hunks.push({ ...hunkHeader, lines: hunkLines });
+      }
+
+      const totalLines = hunks.reduce((sum, h) => sum + h.lines.length, 0);
+      if (totalLines >= PARSE_DIFF_MAX_LINES_PER_FILE) {
+        truncated = true;
+        break;
+      }
+    }
+
+    const entry: RpcDiffEntry = {
+      path: filePath,
+      status,
+      hunks,
+    };
+    if (status === "renamed" && oldPath) entry.oldPath = oldPath;
+    if (isBinary || truncated) entry.isBinary = isBinary || undefined;
+    entries.push(entry);
+  }
+
+  return entries;
 }
 
 function isTreeSettingsEntry(type: string): boolean {
@@ -6185,6 +6428,28 @@ export class WsRpcAdapter {
           command: "list_git_branches" as const,
           success: true as const,
           data: repoState,
+        };
+      }
+
+      case "list_diff_entries": {
+        const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+        if (!repoState) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_diff_entries" as const,
+            success: false as const,
+            error: "No git repository found for the active session",
+          };
+        }
+
+        const entries = parseGitDiff(repoState.repoRoot);
+        return {
+          id: correlationId,
+          type: "response" as const,
+          command: "list_diff_entries" as const,
+          success: true as const,
+          data: { entries },
         };
       }
 

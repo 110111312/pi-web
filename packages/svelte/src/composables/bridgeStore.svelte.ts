@@ -8,6 +8,9 @@ import type {
   RpcResponse,
   RpcSessionState,
   RpcDirectoryEntry,
+  RpcDiffEntry,
+  RpcDiffHunk,
+  RpcDiffLine,
   RpcSessionStats,
   RpcSlashCommand,
   RpcThinkingLevel,
@@ -314,6 +317,12 @@ let _sessionStats = $state<RpcSessionStats | null>(null);
 let _gitRepoState = $state<RpcGitRepoState | null>(null);
 let _gitRepoLoading = $state(false);
 let _gitBranchSwitching = $state(false);
+let _diffEntries = $state<readonly RpcDiffEntry[]>([]);
+let _diffLoaded = $state(false);
+let _diffLoading = $state(false);
+let diffEntriesRequest:
+  | Promise<{ entries: RpcDiffEntry[] } | null>
+  | null = null;
 let _reconnectCount = $state(0);
 let _lastDisconnectReason = $state("");
 let _connectionError = $state("");
@@ -364,6 +373,9 @@ let sessionStats = $derived(_sessionStats);
 let gitRepoState = $derived(_gitRepoState);
 let gitRepoLoading = $derived(_gitRepoLoading);
 let gitBranchSwitching = $derived(_gitBranchSwitching);
+let diffEntries = $derived(_diffEntries);
+let diffLoaded = $derived(_diffLoaded);
+let diffLoading = $derived(_diffLoading);
 let reconnectCount = $derived(_reconnectCount);
 let lastDisconnectReason = $derived(_lastDisconnectReason);
 let connectionError = $derived(_connectionError);
@@ -1465,6 +1477,7 @@ function applySessionSnapshotResponse(
   }
   if (prevSp !== getDisplayedSessionPath()) {
     resetGitRepoState();
+    invalidateDiffEntries();
     _isStreaming = false;
   }
   if (prevWp !== getWorkspaceEntriesContextKey()) invalidateWorkspaceEntries();
@@ -1882,6 +1895,10 @@ function applyGitRepoMutation(state: RpcGitRepoState | null) {
   }
   invalidateWorkspaceEntries();
   void fetchWorkspaceEntries(true).catch(() => {});
+  // Diff entries are scoped to the current branch — invalidate the cache
+  // and re-fetch so the UI reflects changes from the new HEAD.
+  invalidateDiffEntries();
+  void fetchDiffEntries().catch(() => {});
 }
 
 export async function switchGitBranch(
@@ -1960,6 +1977,150 @@ export async function createGitBranch(
   } finally {
     _gitBranchSwitching = false;
   }
+}
+
+function normalizeDiffLine(value: unknown): RpcDiffLine | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Partial<RpcDiffLine>;
+  const type =
+    data.type === "added" || data.type === "deleted" || data.type === "context"
+      ? data.type
+      : "context";
+  return {
+    type,
+    content: typeof data.content === "string" ? data.content : "",
+    oldLineNo:
+      typeof data.oldLineNo === "number" && Number.isFinite(data.oldLineNo)
+        ? data.oldLineNo
+        : undefined,
+    newLineNo:
+      typeof data.newLineNo === "number" && Number.isFinite(data.newLineNo)
+        ? data.newLineNo
+        : undefined,
+  };
+}
+
+function normalizeDiffHunk(value: unknown): RpcDiffHunk | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Partial<RpcDiffHunk>;
+  const lines = Array.isArray(data.lines)
+    ? data.lines
+        .map(line => normalizeDiffLine(line))
+        .filter((line): line is RpcDiffLine => line !== null)
+    : [];
+  return {
+    oldStart:
+      typeof data.oldStart === "number" && Number.isFinite(data.oldStart)
+        ? data.oldStart
+        : 0,
+    oldCount:
+      typeof data.oldCount === "number" && Number.isFinite(data.oldCount)
+        ? data.oldCount
+        : 0,
+    newStart:
+      typeof data.newStart === "number" && Number.isFinite(data.newStart)
+        ? data.newStart
+        : 0,
+    newCount:
+      typeof data.newCount === "number" && Number.isFinite(data.newCount)
+        ? data.newCount
+        : 0,
+    lines,
+  };
+}
+
+function normalizeDiffEntry(value: unknown): RpcDiffEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Partial<RpcDiffEntry>;
+  if (typeof data.path !== "string" || !data.path) return null;
+  const status =
+    data.status === "added" ||
+    data.status === "modified" ||
+    data.status === "deleted" ||
+    data.status === "renamed"
+      ? data.status
+      : "modified";
+  const hunks = Array.isArray(data.hunks)
+    ? data.hunks
+        .map(hunk => normalizeDiffHunk(hunk))
+        .filter((hunk): hunk is RpcDiffHunk => hunk !== null)
+    : [];
+  const entry: RpcDiffEntry = {
+    path: data.path,
+    status,
+    hunks,
+  };
+  if (typeof data.oldPath === "string" && data.oldPath) {
+    entry.oldPath = data.oldPath;
+  }
+  if (data.isBinary === true) entry.isBinary = true;
+  return entry;
+}
+
+function normalizeDiffEntries(value: unknown): RpcDiffEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(entry => normalizeDiffEntry(entry))
+    .filter((entry): entry is RpcDiffEntry => entry !== null);
+}
+
+export async function fetchDiffEntries(
+  force: boolean = false,
+): Promise<readonly RpcDiffEntry[]> {
+  if (!force && _diffLoaded) return _diffEntries;
+  if (diffEntriesRequest && !force) {
+    const result = await diffEntriesRequest;
+    return result?.entries ?? _diffEntries;
+  }
+  if (_connectionStatus !== "connected") return _diffEntries;
+
+  _diffLoading = true;
+  diffEntriesRequest = sendCommand({ type: "list_diff_entries" })
+    .then(resp => {
+      if (!resp.success) {
+        pushNotification(
+          summarizeErrorMessage(
+            resp.error ?? "Failed to load git diff",
+            "Failed to load git diff",
+          ),
+          "error",
+        );
+        _diffLoading = false;
+        return null;
+      }
+      const data = resp.data as { entries?: unknown } | undefined;
+      const entries = normalizeDiffEntries(data?.entries);
+      _diffEntries = Object.freeze(entries);
+      _diffLoaded = true;
+      _diffLoading = false;
+      return { entries };
+    })
+    .catch(error => {
+      pushNotification(
+        summarizeErrorMessage(
+          error instanceof Error ? error.message : "Failed to load git diff",
+          "Failed to load git diff",
+        ),
+        "error",
+      );
+      _diffLoading = false;
+      diffEntriesRequest = null;
+      return null;
+    });
+
+  const result = await diffEntriesRequest;
+  return result?.entries ?? _diffEntries;
+}
+
+export function refreshDiffEntries(): Promise<readonly RpcDiffEntry[]> {
+  return fetchDiffEntries(true);
+}
+
+export function invalidateDiffEntries() {
+  _diffEntries = Object.freeze([]);
+  _diffLoaded = false;
+  _diffLoading = false;
+  diffEntriesRequest = null;
 }
 
 export async function abortGeneration() {
@@ -2218,7 +2379,10 @@ function handleResponse(payload: RpcResponse) {
           if (!_activeTreeSessionPath && data.sessionFile) {
             _activeTreeSessionPath = data.sessionFile;
           }
-          if (prevSp !== getDisplayedSessionPath()) resetGitRepoState();
+          if (prevSp !== getDisplayedSessionPath()) {
+            resetGitRepoState();
+            invalidateDiffEntries();
+          }
           if (prevWp !== getWorkspaceEntriesContextKey())
             invalidateWorkspaceEntries();
         }
@@ -2347,6 +2511,11 @@ function handleResponse(payload: RpcResponse) {
           pushNotification("Failed to parse git branch data", "error");
         break;
       }
+      case "list_diff_entries": {
+        // Handled inline in fetchDiffEntries via the response promise;
+        // no additional state mutation needed here.
+        break;
+      }
       case "switch_git_branch": {
         applyGitRepoMutation(normalizeGitRepoState(payload.data));
         break;
@@ -2472,6 +2641,10 @@ function handleEvent(payload: RpcBridgeEvent) {
       // deleted, or moved files during its turn. Force so we bypass the
       // client-side cache.
       void refreshWorkspaceEntries().catch(() => {});
+      // Same reasoning for diff entries: agent turns often produce file
+      // changes that should be reflected in the diff view.
+      invalidateDiffEntries();
+      void fetchDiffEntries().catch(() => {});
       break;
     }
     case "model_select": {
@@ -2762,6 +2935,15 @@ export function initBridge() {
     get gitBranchSwitching() {
       return gitBranchSwitching;
     },
+    get diffEntries() {
+      return diffEntries;
+    },
+    get diffLoaded() {
+      return diffLoaded;
+    },
+    get diffLoading() {
+      return diffLoading;
+    },
     get pendingMessageCount() {
       return pendingMessageCount;
     },
@@ -2814,6 +2996,8 @@ export function initBridge() {
     loadGitRepoState,
     switchGitBranch,
     createGitBranch,
+    fetchDiffEntries,
+    refreshDiffEntries,
     switchSession,
     newSession,
     registerWorkspace,

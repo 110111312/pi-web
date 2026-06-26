@@ -851,6 +851,113 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
+    it("should list diff entries for the active repo", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-diff-cmd-"),
+      );
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello\n");
+      runGit(tmpDir, ["init"]);
+      runGit(tmpDir, ["config", "user.name", "Pi Web"]);
+      runGit(tmpDir, ["config", "user.email", "pi-web@example.com"]);
+      runGit(tmpDir, ["add", "README.md"]);
+      runGit(tmpDir, ["commit", "-m", "init"]);
+
+      // Modify README so there's an unstaged diff to surface.
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello world\n");
+
+      (
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
+      ).mockReturnValue(tmpDir);
+      context.state.cwd = tmpDir;
+
+      const command: RpcCommand = {
+        id: "cmd-diff-list",
+        type: "list_diff_entries",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        call => JSON.parse(call[0] as string),
+      );
+      const response = sendCalls.find(
+        call =>
+          call.type === "response" &&
+          call.payload.command === "list_diff_entries" &&
+          call.payload.success,
+      );
+
+      expect(response?.payload.data.entries).toEqual([
+        expect.objectContaining({
+          path: "README.md",
+          status: "modified",
+        }),
+      ]);
+      const entry = response?.payload.data.entries?.[0];
+      expect(entry?.hunks).toHaveLength(1);
+      expect(entry?.hunks[0]?.lines).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "deleted", content: "hello" }),
+          expect.objectContaining({
+            type: "added",
+            content: "hello world",
+          }),
+        ]),
+      );
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should return an empty diff list when the working tree is clean", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-diff-clean-"),
+      );
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello\n");
+      runGit(tmpDir, ["init"]);
+      runGit(tmpDir, ["config", "user.name", "Pi Web"]);
+      runGit(tmpDir, ["config", "user.email", "pi-web@example.com"]);
+      runGit(tmpDir, ["add", "README.md"]);
+      runGit(tmpDir, ["commit", "-m", "init"]);
+
+      (
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
+      ).mockReturnValue(tmpDir);
+      context.state.cwd = tmpDir;
+
+      const command: RpcCommand = {
+        id: "cmd-diff-clean",
+        type: "list_diff_entries",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        call => JSON.parse(call[0] as string),
+      );
+      const response = sendCalls.find(
+        call =>
+          call.type === "response" &&
+          call.payload.command === "list_diff_entries" &&
+          call.payload.success,
+      );
+
+      expect(response?.payload.data.entries).toEqual([]);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("should handle get_messages command", async () => {
       const command: RpcCommand = { id: "cmd-1", type: "get_messages" };
       (
@@ -5116,6 +5223,100 @@ describe("WsRpcAdapter", () => {
         "session-a",
         "session-c",
       ]);
+    });
+  });
+
+  describe("parseGitDiff", () => {
+    function setupRepo(files: Record<string, string> = {}): string {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-diff-test-"),
+      );
+      runGit(tmpDir, ["init"]);
+      runGit(tmpDir, ["config", "user.name", "Pi Web"]);
+      runGit(tmpDir, ["config", "user.email", "pi-web@example.com"]);
+
+      // Write baseline files and commit.
+      for (const [relPath, content] of Object.entries(files)) {
+        const fullPath = path.join(tmpDir, relPath);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, content);
+      }
+      runGit(tmpDir, ["add", "-A"]);
+      runGit(tmpDir, ["commit", "-m", "init"]);
+      return tmpDir;
+    }
+
+    it("returns empty array for non-git directory", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-no-git-"),
+      );
+      const entries = await import("../ws-rpc-adapter.js").then(m =>
+        m.parseGitDiff(tmpDir),
+      );
+      expect(entries).toEqual([]);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("returns empty array for clean working tree", async () => {
+      const tmpDir = setupRepo({ "README.md": "hello\n" });
+      const { parseGitDiff } = await import("../ws-rpc-adapter.js");
+      expect(parseGitDiff(tmpDir)).toEqual([]);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("parses a single modified file with one hunk", async () => {
+      const tmpDir = setupRepo({ "src/app.ts": "line1\nline2\nline3\n" });
+      fs.writeFileSync(
+        path.join(tmpDir, "src/app.ts"),
+        "line1\nline2-CHANGED\nline3\n",
+      );
+
+      const { parseGitDiff } = await import("../ws-rpc-adapter.js");
+      const entries = parseGitDiff(tmpDir);
+
+      expect(entries).toHaveLength(1);
+      const entry = entries[0]!;
+      expect(entry.path).toBe("src/app.ts");
+      expect(entry.status).toBe("modified");
+      expect(entry.hunks).toHaveLength(1);
+
+      const hunk = entry.hunks[0]!;
+      // `git diff --unified=3` includes 3 lines of context by default.
+      expect(hunk.lines.length).toBeGreaterThanOrEqual(3);
+      // Find the deleted line and the added line — context line order is
+      // preserved by git's output.
+      const deleted = hunk.lines.find(line => line.type === "deleted");
+      const added = hunk.lines.find(line => line.type === "added");
+      expect(deleted).toMatchObject({
+        type: "deleted",
+        content: "line2",
+        oldLineNo: 2,
+      });
+      expect(deleted?.newLineNo).toBeUndefined();
+      expect(added).toMatchObject({
+        type: "added",
+        content: "line2-CHANGED",
+        newLineNo: 2,
+      });
+      expect(added?.oldLineNo).toBeUndefined();
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("parses deleted files with proper status", async () => {
+      const tmpDir = setupRepo({ "src/remove.ts": "delete me\n" });
+      fs.unlinkSync(path.join(tmpDir, "src/remove.ts"));
+
+      const { parseGitDiff } = await import("../ws-rpc-adapter.js");
+      const entries = parseGitDiff(tmpDir);
+
+      const removed = entries.find(e => e.path === "src/remove.ts");
+      expect(removed?.status).toBe("deleted");
+      expect(removed?.hunks).toHaveLength(1);
+      expect(removed?.hunks[0]?.oldStart).toBe(1);
+      expect(removed?.hunks[0]?.newStart).toBe(0);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
 });

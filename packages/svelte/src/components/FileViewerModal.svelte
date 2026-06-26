@@ -110,7 +110,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4vh 4vw;
+    padding: max(4vh, env(safe-area-inset-top, 0px)) max(4vw, env(safe-area-inset-right, 0px)) max(4vh, env(safe-area-inset-bottom, 0px)) max(4vw, env(safe-area-inset-left, 0px));
     background: var(--backdrop);
     animation: file-viewer-modal-fade-in 0.14s ease;
   }
@@ -128,9 +128,9 @@
     display: flex;
     flex-direction: column;
     width: min(92vw, 1400px);
-    height: min(92vh, 1000px);
+    height: min(92dvh, 1000px);
     max-width: 92vw;
-    max-height: 92vh;
+    max-height: 92dvh;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--rail-bg);
@@ -149,20 +149,20 @@
     }
   }
 
-  .file-viewer-modal-body :global(.file-viewer-panel) {
+  .file-viewer-modal :global(.file-viewer-panel) {
     height: 100%;
   }
 
   @media (max-width: 900px) {
     .file-viewer-modal-backdrop {
-      padding: 0;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     }
 
     .file-viewer-modal {
-      width: 100vw;
-      height: 100vh;
-      max-width: 100vw;
-      max-height: 100vh;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
       border-radius: 0;
       border: none;
     }

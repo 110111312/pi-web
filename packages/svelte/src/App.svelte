@@ -518,11 +518,9 @@
   let displayedQueuedUserMessages = $derived(
     activeDebugSession ? [] : bridge.queuedUserMessages,
   );
-  // The right sidebar shows whenever there's a session tree to browse or a
-  // workspace files tab to show — basically whenever the app has content.
-  let hasRightSidebarContent = $derived(
-    displayedHasSessionOutline || bridge.hasSessionOutline,
-  );
+  // The right sidebar is always available — the Files tab provides project
+  // file browsing regardless of whether a session has an outline.
+  let hasRightSidebarContent = $derived(true);
   const hasFilesTab = $derived(hasRightSidebarContent);
 
   let activeSessionEntry = $derived(
@@ -898,10 +896,9 @@
   function handleRightSidebarTabSelect(tabId: string) {
     activeRightSidebarTabId = tabId;
     if (tabId === TREE_TAB_ID) handleRefreshTree();
-    // Workspace entries are cached aggressively on the client side; only
-    // fetch on first switch (cache miss) — handled by fetchWorkspaceEntries
-    // internally. Subsequent tab switches reuse the cached entries without
-    // a round-trip. Users can force a fresh scan via the refresh button.
+    if (tabId === FILES_TAB_ID) {
+      void bridge.fetchWorkspaceEntries().catch(() => {});
+    }
   }
 
   function handleRefreshWorkspaceEntries() {

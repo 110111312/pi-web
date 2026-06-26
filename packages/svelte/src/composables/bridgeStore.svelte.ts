@@ -15,6 +15,7 @@ import type {
   RpcTranscriptStartEvent,
   RpcWorkspaceEntry,
   RpcWorkspaceFile,
+  RpcWorkspaceWriteResult,
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcGitBranch,
@@ -1781,6 +1782,27 @@ export async function readWorkspaceFile(
   return data as RpcWorkspaceFile;
 }
 
+export async function writeWorkspaceFile(
+  path: string,
+  content: string,
+  expectedMtime?: string,
+): Promise<RpcWorkspaceWriteResult> {
+  const wp = getDisplayedWorkspacePath();
+  const resp = await sendCommand({
+    type: "write_workspace_file",
+    path,
+    content,
+    expectedMtime,
+    ...(wp ? { workspacePath: wp } : {}),
+  });
+  if (!resp.success)
+    throw new Error(resp.error ?? "Failed to write workspace file");
+  const data = resp.data;
+  if (!data || typeof data !== "object")
+    throw new Error("Failed to parse workspace write response");
+  return data as RpcWorkspaceWriteResult;
+}
+
 export async function loadGitRepoState(
   force: boolean = false,
 ): Promise<RpcGitRepoState | null> {
@@ -2753,6 +2775,7 @@ export function initBridge() {
     loadOlderTranscriptPage,
     fetchWorkspaceEntries,
     readWorkspaceFile,
+    writeWorkspaceFile,
     loadWorkspaceSessions,
     refreshWorkspaces,
     loadGitRepoState,

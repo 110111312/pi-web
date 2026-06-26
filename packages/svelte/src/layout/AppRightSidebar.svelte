@@ -1,9 +1,17 @@
 <script lang="ts">
-  import type { RpcWorkspaceFile } from "@pi-web/bridge/types";
+  import type { RpcWorkspaceEntry, RpcWorkspaceFile } from "@pi-web/bridge/types";
   import X from "lucide-svelte/icons/x";
+  import FileBrowserPanel from "../components/FileBrowserPanel.svelte";
   import FileViewerPanel from "../components/FileViewerPanel.svelte";
   import SessionTreeRail from "../components/SessionTreeRail.svelte";
   import type { TreeEntry } from "../composables/bridgeStore.svelte";
+
+  type WriteResult = {
+    path: string;
+    absolutePath: string;
+    mtime: string;
+    bytesWritten: number;
+  };
 
   type FileTab = {
     id: string;
@@ -16,37 +24,66 @@
     sidebarOpen = false,
     sessionPath = null as string | null,
     hasTreeTab = false,
+    hasFilesTab = false,
     activeTabId = "",
     activeFileTab = null as FileTab | null,
     fileViewerTabs = [] as readonly FileTab[],
+    workspaceEntries = [] as readonly RpcWorkspaceEntry[],
+    workspaceEntriesLoading = false,
     readWorkspaceFile = (_: string) =>
       Promise.resolve({} as RpcWorkspaceFile),
+    writeWorkspaceFile = (_: string, __: string, ___?: string) =>
+      Promise.resolve({
+        path: "",
+        absolutePath: "",
+        mtime: "",
+        bytesWritten: 0,
+      } satisfies WriteResult),
     onCloseSidebar = () => {},
     onSelectTab = (_: string) => {},
     onCloseFileTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
+    onOpenFile = (_: string) => {},
   }: {
     treeEntries?: readonly TreeEntry[];
     sidebarOpen?: boolean;
     sessionPath?: string | null;
     hasTreeTab?: boolean;
+    hasFilesTab?: boolean;
     activeTabId?: string;
     activeFileTab?: FileTab | null;
     fileViewerTabs?: readonly FileTab[];
+    workspaceEntries?: readonly RpcWorkspaceEntry[];
+    workspaceEntriesLoading?: boolean;
     readWorkspaceFile?: (path: string) => Promise<RpcWorkspaceFile>;
+    writeWorkspaceFile?: (
+      path: string,
+      content: string,
+      expectedMtime?: string,
+    ) => Promise<WriteResult>;
     onCloseSidebar?: () => void;
     onSelectTab?: (tabId: string) => void;
     onCloseFileTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
+    onOpenFile?: (path: string) => void;
   } = $props();
 
   let tabs = $derived([
     ...(hasTreeTab ? [{ id: "tree", path: "Tree", lineNumber: 0 }] : []),
+    ...(hasFilesTab ? [{ id: "files", path: "Files", lineNumber: 0 }] : []),
     ...fileViewerTabs,
   ]);
 
-  function isTreeTab(tabId: string): boolean {
-    return tabId === "tree";
+  function isSpecialTab(tabId: string): boolean {
+    return tabId === "tree" || tabId === "files";
+  }
+
+  function specialTabLabel(tabId: string): string {
+    return tabId === "tree" ? "Tree" : "Files";
+  }
+
+  function specialTabTitle(tabId: string): string {
+    return tabId === "tree" ? "Session tree" : "Files";
   }
 
   function fileTabLabel(filePath: string): string {
@@ -70,16 +107,16 @@
             role="tab"
             aria-selected={activeTabId === tab.id}
             aria-controls={`right-rail-panel-${tab.id}`}
-            title={isTreeTab(tab.id)
-              ? "Session tree"
+            title={isSpecialTab(tab.id)
+              ? specialTabTitle(tab.id)
               : `${tab.path}:${tab.lineNumber}`}
             onclick={() => onSelectTab(tab.id)}
           >
             <span class="rail-tab-label">
-              {isTreeTab(tab.id) ? "Tree" : fileTabLabel(tab.path)}
+              {isSpecialTab(tab.id) ? specialTabLabel(tab.id) : fileTabLabel(tab.path)}
             </span>
           </button>
-          {#if !isTreeTab(tab.id)}
+          {#if !isSpecialTab(tab.id)}
             <button
               type="button"
               class="rail-tab-close"
@@ -109,6 +146,19 @@
             onSelect={(e: string) => onSelectTreeEntry(e)}
           />
         </div>
+      {:else if activeTabId === "files" && hasFilesTab}
+        <div
+          id="right-rail-panel-files"
+          class="tab-panel"
+          role="tabpanel"
+          aria-labelledby="right-rail-tab-files"
+        >
+          <FileBrowserPanel
+            entries={workspaceEntries}
+            loading={workspaceEntriesLoading}
+            onOpenFile={onOpenFile}
+          />
+        </div>
       {:else if activeFileTab}
         <div
           id={`right-rail-panel-${activeFileTab.id}`}
@@ -120,6 +170,7 @@
             filePath={activeFileTab.path}
             lineNumber={activeFileTab.lineNumber}
             readWorkspaceFile={readWorkspaceFile}
+            writeWorkspaceFile={writeWorkspaceFile}
           />
         </div>
       {/if}

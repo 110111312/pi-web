@@ -56,6 +56,7 @@ import type {
   RpcWorkspaceEntry,
   RpcWorkspaceFile,
   RpcWorkspaceSummary,
+  RpcWorkspaceWriteResult,
   RpcTreeTrackColumn,
   ServerMessage,
   WsClient,
@@ -1402,6 +1403,13 @@ function readWorkspaceFile(
     : contentBuffer;
   const content = previewBuffer.toString("utf8");
 
+  let mtime: string | undefined;
+  try {
+    mtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
+  } catch {
+    // Best-effort: mtime is optional in the response.
+  }
+
   return {
     path: resolved.displayPath,
     absolutePath: resolved.resolvedPath,
@@ -1409,6 +1417,74 @@ function readWorkspaceFile(
     truncated,
     totalBytes: contentBuffer.length,
     lineCount: content.split(/\r?\n/).length,
+    ...(mtime ? { mtime } : {}),
+  };
+}
+
+function writeWorkspaceFile(
+  cwd: string,
+  requestedPath: string,
+  content: string,
+  expectedMtime?: string,
+): RpcWorkspaceWriteResult | { error: string } {
+  // Reject binary content (null bytes) before touching the filesystem.
+  if (content.includes("\0")) {
+    return { error: "Cannot write binary content" };
+  }
+
+  let resolved:
+    | { resolvedPath: string; displayPath: string }
+    | { error: string };
+  try {
+    resolved = resolveWorkspaceFile(cwd, requestedPath);
+  } catch {
+    return { error: "Failed to resolve workspace file" };
+  }
+  if ("error" in resolved) {
+    return resolved;
+  }
+
+  // Optimistic locking: if the caller passed expectedMtime, ensure the file
+  // on disk still has that mtime. Stale mtime means someone else edited the
+  // file since the caller last read it — refuse to overwrite.
+  if (expectedMtime) {
+    let currentMtime: string;
+    try {
+      currentMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
+    } catch {
+      return { error: "File has been deleted since you last read it" };
+    }
+    if (currentMtime !== expectedMtime) {
+      return {
+        error:
+          "File has been modified externally. Please reload and try again.",
+      };
+    }
+  }
+
+  try {
+    fs.writeFileSync(resolved.resolvedPath, content, "utf8");
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error
+          ? `Failed to write file: ${err.message}`
+          : "Failed to write file",
+    };
+  }
+
+  let newMtime: string;
+  try {
+    newMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
+  } catch {
+    return { error: "Failed to stat file after write" };
+  }
+
+  return {
+    path: resolved.displayPath,
+    absolutePath: resolved.resolvedPath,
+    mtime: newMtime,
+    bytesWritten: Buffer.byteLength(content, "utf8"),
   };
 }
 
@@ -5961,6 +6037,33 @@ export class WsRpcAdapter {
           id: correlationId,
           type: "response" as const,
           command: "read_workspace_file" as const,
+          success: true as const,
+          data: result,
+        };
+      }
+
+      case "write_workspace_file": {
+        const result = writeWorkspaceFile(
+          normalizeOptionalWorkspaceRoot(command.workspacePath) ||
+            this.sessionRuntime.currentGitCwd(),
+          command.path,
+          command.content,
+          command.expectedMtime,
+        );
+        if ("error" in result) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "write_workspace_file" as const,
+            success: false as const,
+            error: result.error,
+          };
+        }
+
+        return {
+          id: correlationId,
+          type: "response" as const,
+          command: "write_workspace_file" as const,
           success: true as const,
           data: result,
         };

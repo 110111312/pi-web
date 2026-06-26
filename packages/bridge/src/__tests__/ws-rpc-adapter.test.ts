@@ -3295,6 +3295,208 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     });
 
+    it("should handle write_workspace_file command", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-file-test-"),
+      );
+      const filePath = path.join(tmpDir, "src", "notes.md");
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, "old content\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-write-file",
+        type: "write_workspace_file",
+        path: "src/notes.md",
+        content: "new content\nsecond line\n",
+        workspacePath: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.command).toBe("write_workspace_file");
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.data.path).toBe("src/notes.md");
+      expect(response.payload.data.absolutePath).toBe(
+        fs.realpathSync(filePath),
+      );
+      expect(response.payload.data.bytesWritten).toBe(
+        Buffer.byteLength("new content\nsecond line\n", "utf8"),
+      );
+      expect(response.payload.data.mtime).toBeTruthy();
+      expect(fs.readFileSync(filePath, "utf8")).toBe(
+        "new content\nsecond line\n",
+      );
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should reject write_workspace_file outside the workspace", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-guard-test-"),
+      );
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-outside-test-"),
+      );
+      const outsideFile = path.join(outsideDir, "outside.txt");
+      fs.writeFileSync(outsideFile, "original\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-write-outside",
+        type: "write_workspace_file",
+        path: outsideFile,
+        content: "tampered\n",
+        workspacePath: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.command).toBe("write_workspace_file");
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toContain("inside the current workspace");
+      // File outside workspace must be untouched.
+      expect(fs.readFileSync(outsideFile, "utf8")).toBe("original\n");
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    });
+
+    it("should reject write_workspace_file with stale mtime", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-stale-test-"),
+      );
+      const filePath = path.join(tmpDir, "a.txt");
+      fs.writeFileSync(filePath, "original\n");
+      const originalMtime = fs.statSync(filePath).mtime.toISOString();
+      context.state.cwd = os.tmpdir();
+
+      // Simulate an external modification between read and write.
+      await new Promise(r => setTimeout(r, 10));
+      fs.writeFileSync(filePath, "modified externally\n");
+
+      const command: RpcCommand = {
+        id: "cmd-write-stale",
+        type: "write_workspace_file",
+        path: "a.txt",
+        content: "my save\n",
+        workspacePath: tmpDir,
+        expectedMtime: originalMtime,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.command).toBe("write_workspace_file");
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toMatch(/modified externally/i);
+      // External file must remain untouched.
+      expect(fs.readFileSync(filePath, "utf8")).toBe("modified externally\n");
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should allow write_workspace_file without expectedMtime", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-nocheck-test-"),
+      );
+      const filePath = path.join(tmpDir, "b.txt");
+      fs.writeFileSync(filePath, "initial\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-write-nocheck",
+        type: "write_workspace_file",
+        path: "b.txt",
+        content: "force overwrite\n",
+        workspacePath: tmpDir,
+        // no expectedMtime
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.success).toBe(true);
+      expect(fs.readFileSync(filePath, "utf8")).toBe("force overwrite\n");
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should reject write_workspace_file with binary content", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-write-binary-test-"),
+      );
+      const filePath = path.join(tmpDir, "c.bin");
+      fs.writeFileSync(filePath, "placeholder\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-write-binary",
+        type: "write_workspace_file",
+        path: "c.bin",
+        // String with embedded NUL byte — null check should reject.
+        content: "binary\0content",
+        workspacePath: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toMatch(/binary/i);
+      // Placeholder must remain untouched.
+      expect(fs.readFileSync(filePath, "utf8")).toBe("placeholder\n");
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("should handle list_tree_entries command", async () => {
       (
         context.state.sessionManager.getBranch as ReturnType<typeof vi.fn>

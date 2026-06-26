@@ -43,6 +43,14 @@ export interface RpcWorkspaceFile {
   truncated: boolean;
   totalBytes: number;
   lineCount: number;
+  mtime?: string;
+}
+
+export interface RpcWorkspaceWriteResult {
+  path: string;
+  absolutePath: string;
+  mtime: string;
+  bytesWritten: number;
 }
 
 export interface RpcGitBranch {
@@ -317,6 +325,12 @@ export interface RpcCommandMap {
   list_tree_entries: { sessionPath?: string };
   list_workspace_entries: { force?: boolean; workspacePath?: string };
   read_workspace_file: { path: string; workspacePath?: string };
+  write_workspace_file: {
+    path: string;
+    content: string;
+    workspacePath?: string;
+    expectedMtime?: string;
+  };
 
   /** Git */
   list_git_branches: {};
@@ -676,6 +690,7 @@ export interface RpcResponseMap {
   list_tree_entries: { entries: RpcTreeEntry[]; sessionPath?: string };
   list_workspace_entries: { entries: RpcWorkspaceEntry[] };
   read_workspace_file: RpcWorkspaceFile;
+  write_workspace_file: RpcWorkspaceWriteResult;
   list_git_branches: RpcGitRepoState;
   switch_git_branch: RpcGitRepoState;
   create_git_branch: RpcGitRepoState;

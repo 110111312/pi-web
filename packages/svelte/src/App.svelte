@@ -58,6 +58,7 @@
   const bridge = initBridge();
 
   const TREE_TAB_ID = "tree";
+  const FILES_TAB_ID = "files";
 
   let sidebarOpen = $state(false);
   let leftSidebarCollapsed = $state(false);
@@ -374,6 +375,39 @@
     return response.data as RpcWorkspaceFile;
   }
 
+  type WriteWorkspaceFileResult = {
+    path: string;
+    absolutePath: string;
+    mtime: string;
+    bytesWritten: number;
+  };
+
+  async function writeDisplayedWorkspaceFile(
+    path: string,
+    content: string,
+    expectedMtime?: string,
+  ): Promise<WriteWorkspaceFileResult> {
+    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    if (!activeDebugSession) {
+      return bridge.writeWorkspaceFile(path, content, expectedMtime);
+    }
+    if (!workspacePath) {
+      throw new Error("Debug session is not bound to a workspace");
+    }
+
+    const response = await bridge.sendCommand({
+      type: "write_workspace_file",
+      path,
+      content,
+      expectedMtime,
+      workspacePath,
+    });
+    if (!response.success) {
+      throw new Error(response.error ?? "Failed to write workspace file");
+    }
+    return response.data as WriteWorkspaceFileResult;
+  }
+
   let debugSessionsEnabled = $derived(debugModeAvailable);
   let activeDebugSession = $derived(
     debugSessions.find(session => session.path === activeDebugSessionPath) ?? null,
@@ -487,9 +521,11 @@
   let displayedQueuedUserMessages = $derived(
     activeDebugSession ? [] : bridge.queuedUserMessages,
   );
+  // Files tab is shown alongside the tree tab whenever the sidebar is visible.
   let hasRightSidebarContent = $derived(
     displayedHasSessionOutline || fileViewerTabs.length > 0,
   );
+  const hasFilesTab = $derived(hasRightSidebarContent);
 
   let activeSessionEntry = $derived(
     displayedSessions.find(
@@ -545,11 +581,12 @@
 
   function defaultRightSidebarTabId(): RightSidebarTabId | null {
     if (displayedHasSessionOutline) return TREE_TAB_ID;
-    return fileViewerTabs[0]?.id ?? null;
+    return fileViewerTabs[0]?.id ?? FILES_TAB_ID;
   }
 
   function ensureActiveRightSidebarTab() {
     if (activeRightSidebarTabId === TREE_TAB_ID && displayedHasSessionOutline) return;
+    if (activeRightSidebarTabId === FILES_TAB_ID) return;
 
     const activeFileTab = fileViewerTabs.find(
       t => t.id === activeRightSidebarTabId,
@@ -909,6 +946,9 @@
   function handleRightSidebarTabSelect(tabId: string) {
     activeRightSidebarTabId = tabId;
     if (tabId === TREE_TAB_ID) handleRefreshTree();
+    if (tabId === FILES_TAB_ID) {
+      void bridge.fetchWorkspaceEntries().catch(() => {});
+    }
   }
 
   function handleOpenFileReference(payload: {
@@ -1469,14 +1509,19 @@
       sidebarOpen={outlineSidebarOpen}
       sessionPath={displayedActiveSessionPath}
       hasTreeTab={displayedHasSessionOutline}
+      {hasFilesTab}
       activeTabId={activeRightSidebarTabId}
       activeFileTab={activeFileViewerTab}
       {fileViewerTabs}
+      workspaceEntries={displayedWorkspaceEntries}
+      workspaceEntriesLoading={displayedWorkspaceEntriesLoading}
       readWorkspaceFile={readDisplayedWorkspaceFile}
+      writeWorkspaceFile={writeDisplayedWorkspaceFile}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
       onCloseFileTab={closeFileViewerTab}
       onSelectTreeEntry={handleTreeEntrySelect}
+      onOpenFile={(path: string) => openFileViewer(path, 1)}
     />
   {/if}
 

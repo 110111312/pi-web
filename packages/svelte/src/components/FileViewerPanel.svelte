@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { RpcWorkspaceFile } from "@pi-web/bridge/types";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Pencil from "lucide-svelte/icons/pencil";
   import Save from "lucide-svelte/icons/save";
   import X from "lucide-svelte/icons/x";
@@ -9,7 +9,6 @@
   type WriteResult = {
     path: string;
     absolutePath: string;
-    mtime: string;
     bytesWritten: number;
   };
 
@@ -18,14 +17,12 @@
     lineNumber = 1,
     readWorkspaceFile = (_: string) =>
       Promise.resolve({} as RpcWorkspaceFile),
-    writeWorkspaceFile = (_: string, __: string, ___?: string) =>
+    writeWorkspaceFile = (_: string, __: string) =>
       Promise.resolve({
         path: "",
         absolutePath: "",
-        mtime: "",
         bytesWritten: 0,
       } satisfies WriteResult),
-    editable = true,
     onClose,
   }: {
     filePath: string;
@@ -34,10 +31,8 @@
     writeWorkspaceFile?: (
       path: string,
       content: string,
-      expectedMtime?: string,
     ) => Promise<WriteResult>;
-    editable?: boolean;
-    onClose?: () => void;
+    onClose: () => void;
   } = $props();
 
   let container = $state<HTMLDivElement | null>(null);
@@ -55,7 +50,6 @@
   let editedContent = $state("");
   let isSaving = $state(false);
   let saveError = $state("");
-  let fileMtime = $state<string | undefined>(undefined);
   let pendingDiscard = $state(false); // shows unsaved-changes confirmation
 
   let activeLineNumber = $derived(
@@ -67,7 +61,7 @@
   );
 
   let canEdit = $derived(
-    editable && file !== null && !file.truncated && file.path !== "",
+    file !== null && !file.truncated && file.path !== "",
   );
 
   async function loadFile() {
@@ -85,7 +79,6 @@
       const nextFile = await readWorkspaceFile(filePath);
       if (version !== loadVersion) return;
       file = nextFile;
-      fileMtime = nextFile.mtime;
       editedContent = nextFile.content;
     } catch (error) {
       if (version !== loadVersion) return;
@@ -131,10 +124,6 @@
     await scrollToActiveLine();
   }
 
-  function tick(): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, 0));
-  }
-
   function enterEditMode() {
     if (!canEdit) return;
     editedContent = file?.content ?? "";
@@ -169,37 +158,21 @@
     isSaving = true;
     saveError = "";
     try {
-      const result = await writeWorkspaceFile(
-        file.path,
-        editedContent,
-        fileMtime,
-      );
+      await writeWorkspaceFile(file.path, editedContent);
       // Update the file object so the read view re-renders with new content.
       file = {
         ...file,
         content: editedContent,
-        mtime: result.mtime,
         lineCount: editedContent.split(/\r?\n/).length,
       };
-      fileMtime = result.mtime;
       isEditing = false;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to save file";
       saveError = message;
-      if (/modified externally/i.test(message)) {
-        // Stale-mtime: leave edit mode active so the user can reload.
-        saveError =
-          "File has been modified externally. Click Reload to fetch the latest version.";
-      }
     } finally {
       isSaving = false;
     }
-  }
-
-  function reloadFile() {
-    saveError = "";
-    void loadFile();
   }
 
   function onEditorKeydown(event: KeyboardEvent) {
@@ -316,31 +289,20 @@
           </button>
         </div>
       {/if}
-      {#if onClose}
-        <button
-          type="button"
-          class="file-viewer-close-btn"
-          onclick={() => onClose?.()}
-          title="Close (Esc)"
-          aria-label="Close file viewer"
-        >
-          <X size={14} aria-hidden="true" />
-        </button>
-      {/if}
+      <button
+        type="button"
+        class="file-viewer-close-btn"
+        onclick={() => onClose()}
+        title="Close (Esc)"
+        aria-label="Close file viewer"
+      >
+        <X size={14} aria-hidden="true" />
+      </button>
     </header>
 
     {#if saveError}
       <div class="file-viewer-state error">
-        <div>{saveError}</div>
-        {#if /modified externally/i.test(saveError)}
-          <button
-            type="button"
-            class="file-viewer-inline-btn"
-            onclick={reloadFile}
-          >
-            Reload
-          </button>
-        {/if}
+        {saveError}
       </div>
     {/if}
 
@@ -452,8 +414,7 @@
 
   .file-viewer-edit-btn,
   .file-viewer-save-btn,
-  .file-viewer-cancel-btn,
-  .file-viewer-inline-btn {
+  .file-viewer-cancel-btn {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -473,8 +434,7 @@
 
   .file-viewer-edit-btn:hover,
   .file-viewer-save-btn:hover:not(:disabled),
-  .file-viewer-cancel-btn:hover:not(:disabled),
-  .file-viewer-inline-btn:hover {
+  .file-viewer-cancel-btn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--surface-active) 38%, var(--panel-2));
     border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
   }
@@ -531,20 +491,6 @@
   }
 
   .file-viewer-state.error {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: flex-start;
-  }
-
-  .file-viewer-state,
-  .file-viewer-empty {
-    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-    background: color-mix(in srgb, var(--panel) 84%, transparent);
-    color: var(--text-muted);
-  }
-
-  .file-viewer-state.error {
     border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
     background: color-mix(in srgb, var(--error-bg) 72%, transparent);
     color: var(--error-text);
@@ -554,10 +500,6 @@
     border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--border));
     background: color-mix(in srgb, var(--panel) 82%, transparent);
     color: var(--text-muted);
-  }
-
-  .file-viewer-inline-btn {
-    margin-top: 4px;
   }
 
   .file-viewer-code-shell,

@@ -376,18 +376,16 @@
   type WriteWorkspaceFileResult = {
     path: string;
     absolutePath: string;
-    mtime: string;
     bytesWritten: number;
   };
 
   async function writeDisplayedWorkspaceFile(
     path: string,
     content: string,
-    expectedMtime?: string,
   ): Promise<WriteWorkspaceFileResult> {
     const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
     if (!activeDebugSession) {
-      return bridge.writeWorkspaceFile(path, content, expectedMtime);
+      return bridge.writeWorkspaceFile(path, content);
     }
     if (!workspacePath) {
       throw new Error("Debug session is not bound to a workspace");
@@ -397,7 +395,6 @@
       type: "write_workspace_file",
       path,
       content,
-      expectedMtime,
       workspacePath,
     });
     if (!response.success) {
@@ -1498,7 +1495,7 @@
     />
   {/if}
 
-  {#if modalFileOpen && modalFilePath}
+  {#if modalFileOpen}
     <FileViewerModal
       filePath={modalFilePath}
       lineNumber={modalFileLineNumber}

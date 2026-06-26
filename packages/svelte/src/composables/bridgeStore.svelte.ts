@@ -1814,14 +1814,12 @@ export async function readWorkspaceFile(
 export async function writeWorkspaceFile(
   path: string,
   content: string,
-  expectedMtime?: string,
 ): Promise<RpcWorkspaceWriteResult> {
   const wp = getDisplayedWorkspacePath();
   const resp = await sendCommand({
     type: "write_workspace_file",
     path,
     content,
-    expectedMtime,
     ...(wp ? { workspacePath: wp } : {}),
   });
   if (!resp.success)

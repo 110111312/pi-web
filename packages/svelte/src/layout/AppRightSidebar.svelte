@@ -34,8 +34,8 @@
   } = $props();
 
   let tabs = $derived([
-    ...(hasTreeTab ? [{ id: "tree", path: "Tree", lineNumber: 0 }] : []),
-    ...(hasFilesTab ? [{ id: "files", path: "Files", lineNumber: 0 }] : []),
+    ...(hasTreeTab ? [{ id: "tree" }] : []),
+    ...(hasFilesTab ? [{ id: "files" }] : []),
   ]);
 
   function specialTabLabel(tabId: string): string {

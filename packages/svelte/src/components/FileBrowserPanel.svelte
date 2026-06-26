@@ -12,12 +12,10 @@
       Promise.resolve([] as RpcDirectoryEntry[]),
     onOpenFile = (_: string) => {},
     onRefresh,
-    loading = false,
   }: {
     onFetchDirectory?: (path: string) => Promise<RpcDirectoryEntry[]>;
     onOpenFile?: (path: string) => void;
     onRefresh?: () => void;
-    loading?: boolean;
   } = $props();
 
   // Cache of loaded directory contents: path -> entries
@@ -104,13 +102,6 @@
         e.path.toLowerCase().includes(q),
     );
   }
-
-  function shouldShowChevron(entry: RpcDirectoryEntry): boolean {
-    if (entry.kind === "file") return false;
-    const cached = directoryCache.get(entry.path);
-    if (cached !== undefined) return cached.length > 0;
-    return entry.hasChildren !== false;
-  }
 </script>
 
 <div class="file-rail">
@@ -192,12 +183,10 @@
           <span class="chevron" aria-hidden="true">
             <ChevronDown size={12} />
           </span>
-        {:else if shouldShowChevron(entry)}
+        {:else}
           <span class="chevron" aria-hidden="true">
             <ChevronRight size={12} />
           </span>
-        {:else}
-          <span class="chevron-spacer" aria-hidden="true"></span>
         {/if}
         <span class="icon icon-dir" aria-hidden="true">
           <Folder size={13} />

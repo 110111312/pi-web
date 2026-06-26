@@ -5,7 +5,6 @@
   type WriteResult = {
     path: string;
     absolutePath: string;
-    mtime: string;
     bytesWritten: number;
   };
 
@@ -14,14 +13,12 @@
     lineNumber = 1,
     readWorkspaceFile = (_: string) =>
       Promise.resolve({} as RpcWorkspaceFile),
-    writeWorkspaceFile = (_: string, __: string, ___?: string) =>
+    writeWorkspaceFile = (_: string, __: string) =>
       Promise.resolve({
         path: "",
         absolutePath: "",
-        mtime: "",
         bytesWritten: 0,
       } satisfies WriteResult),
-    editable = true,
     onClose = () => {},
   }: {
     filePath: string;
@@ -30,9 +27,7 @@
     writeWorkspaceFile?: (
       path: string,
       content: string,
-      expectedMtime?: string,
     ) => Promise<WriteResult>;
-    editable?: boolean;
     onClose: () => void;
   } = $props();
 
@@ -96,7 +91,6 @@
       {lineNumber}
       {readWorkspaceFile}
       {writeWorkspaceFile}
-      {editable}
       {onClose}
     />
   </div>

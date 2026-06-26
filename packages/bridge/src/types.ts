@@ -32,8 +32,6 @@ export interface RpcWorkspaceEntry {
 export interface RpcDirectoryEntry {
   path: string;
   kind: "file" | "directory";
-  /** For directories: whether this directory has visible children. Always true for files. */
-  hasChildren?: boolean;
 }
 
 export interface RpcWorkspaceSummary {
@@ -50,13 +48,11 @@ export interface RpcWorkspaceFile {
   truncated: boolean;
   totalBytes: number;
   lineCount: number;
-  mtime?: string;
 }
 
 export interface RpcWorkspaceWriteResult {
   path: string;
   absolutePath: string;
-  mtime: string;
   bytesWritten: number;
 }
 
@@ -337,7 +333,6 @@ export interface RpcCommandMap {
     path: string;
     content: string;
     workspacePath?: string;
-    expectedMtime?: string;
   };
 
   /** Git */

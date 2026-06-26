@@ -1395,25 +1395,7 @@ function listDirectoryEntries(
       : item.name;
 
     if (item.isDirectory()) {
-      // Probe whether the directory has any visible (non-.git) children so
-      // the client can render the correct chevron state without an extra
-      // round-trip.
-      let hasChildren = true;
-      try {
-        const subItems = fs.readdirSync(
-          path.join(resolvedDir, item.name),
-          { withFileTypes: true },
-        );
-        hasChildren = subItems.some(sub => sub.name !== ".git");
-      } catch {
-        // Permission denied or similar — keep hasChildren=true so the user
-        // can try to expand and get a proper error.
-      }
-      entries.push({
-        path: entryRelativePath,
-        kind: "directory",
-        hasChildren,
-      });
+      entries.push({ path: entryRelativePath, kind: "directory" });
     } else if (item.isFile()) {
       entries.push({ path: entryRelativePath, kind: "file" });
     }
@@ -1523,13 +1505,6 @@ function readWorkspaceFile(
     : contentBuffer;
   const content = previewBuffer.toString("utf8");
 
-  let mtime: string | undefined;
-  try {
-    mtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-  } catch {
-    // Best-effort: mtime is optional in the response.
-  }
-
   return {
     path: resolved.displayPath,
     absolutePath: resolved.resolvedPath,
@@ -1537,7 +1512,6 @@ function readWorkspaceFile(
     truncated,
     totalBytes: contentBuffer.length,
     lineCount: content.split(/\r?\n/).length,
-    ...(mtime ? { mtime } : {}),
   };
 }
 
@@ -1545,7 +1519,6 @@ function writeWorkspaceFile(
   cwd: string,
   requestedPath: string,
   content: string,
-  expectedMtime?: string,
 ): RpcWorkspaceWriteResult | { error: string } {
   // Reject binary content (null bytes) before touching the filesystem.
   if (content.includes("\0")) {
@@ -1564,24 +1537,6 @@ function writeWorkspaceFile(
     return resolved;
   }
 
-  // Optimistic locking: if the caller passed expectedMtime, ensure the file
-  // on disk still has that mtime. Stale mtime means someone else edited the
-  // file since the caller last read it — refuse to overwrite.
-  if (expectedMtime) {
-    let currentMtime: string;
-    try {
-      currentMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-    } catch {
-      return { error: "File has been deleted since you last read it" };
-    }
-    if (currentMtime !== expectedMtime) {
-      return {
-        error:
-          "File has been modified externally. Please reload and try again.",
-      };
-    }
-  }
-
   try {
     fs.writeFileSync(resolved.resolvedPath, content, "utf8");
   } catch (err) {
@@ -1593,17 +1548,9 @@ function writeWorkspaceFile(
     };
   }
 
-  let newMtime: string;
-  try {
-    newMtime = fs.statSync(resolved.resolvedPath).mtime.toISOString();
-  } catch {
-    return { error: "Failed to stat file after write" };
-  }
-
   return {
     path: resolved.displayPath,
     absolutePath: resolved.resolvedPath,
-    mtime: newMtime,
     bytesWritten: Buffer.byteLength(content, "utf8"),
   };
 }
@@ -6200,7 +6147,6 @@ export class WsRpcAdapter {
             this.sessionRuntime.currentGitCwd(),
           command.path,
           command.content,
-          command.expectedMtime,
         );
         if ("error" in result) {
           return {

@@ -1735,13 +1735,11 @@ function parseDiffHunkHeader(line: string): {
  * deleted) and tracked line numbers.
  */
 export function parseGitDiff(cwd: string): RpcDiffEntry[] {
-  const repoRootResult = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
-  if (repoRootResult.error || repoRootResult.status !== 0) return [];
-  const repoRoot = readSpawnText(repoRootResult.stdout).trim();
-  if (!repoRoot) return [];
-
+  // Run git diff directly from the session's working directory. Git
+  // automatically detects the correct repository boundary, even when
+  // nested repos exist (e.g. an addons workspace inside a larger project).
   const diffResult = runGitCommand(
-    repoRoot,
+    cwd,
     ["diff", "--no-color", "--no-ext-diff", "--unified=3"],
     10000,
   );
@@ -6432,18 +6430,18 @@ export class WsRpcAdapter {
       }
 
       case "list_diff_entries": {
-        const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
-        if (!repoState) {
+        const cwd = this.sessionRuntime.currentGitCwd();
+        if (!cwd) {
           return {
             id: correlationId,
             type: "response" as const,
             command: "list_diff_entries" as const,
             success: false as const,
-            error: "No git repository found for the active session",
+            error: "No working directory for the active session",
           };
         }
 
-        const entries = parseGitDiff(repoState.repoRoot);
+        const entries = parseGitDiff(cwd);
         return {
           id: correlationId,
           type: "response" as const,

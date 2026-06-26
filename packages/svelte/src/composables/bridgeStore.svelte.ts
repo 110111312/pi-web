@@ -1478,6 +1478,7 @@ function applySessionSnapshotResponse(
   if (prevSp !== getDisplayedSessionPath()) {
     resetGitRepoState();
     invalidateDiffEntries();
+    void fetchDiffEntries().catch(() => {});
     _isStreaming = false;
   }
   if (prevWp !== getWorkspaceEntriesContextKey()) invalidateWorkspaceEntries();

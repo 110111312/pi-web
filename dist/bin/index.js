@@ -1925,6 +1925,189 @@ function readGitRepoState(cwd) {
 		branches
 	};
 }
+/**
+* Maximum number of diff lines to emit per file. If a single file has more
+* lines than this across all hunks, the parser truncates to keep payloads
+* reasonable. Files at the limit can still be huge — this is a guardrail,
+* not a guarantee.
+*/
+const PARSE_DIFF_MAX_LINES_PER_FILE = 5e3;
+const HUNK_HEADER_REGEX = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+function parseDiffHunkHeader(line) {
+	const match = HUNK_HEADER_REGEX.exec(line);
+	if (!match) return null;
+	return {
+		oldStart: Number(match[1]),
+		oldCount: match[2] !== void 0 ? Number(match[2]) : 1,
+		newStart: Number(match[3]),
+		newCount: match[4] !== void 0 ? Number(match[4]) : 1
+	};
+}
+/**
+* Parse `git diff --no-color` output into structured diff entries.
+*
+* Returns an empty array if the directory is not a git repository, git is
+* unavailable, or the working tree has no unstaged changes. Each file's
+* diff is parsed into a sequence of hunks with typed lines (context/added/
+* deleted) and tracked line numbers.
+*/
+function parseGitDiff(cwd) {
+	const diffResult = runGitCommand(cwd, [
+		"diff",
+		"--no-color",
+		"--no-ext-diff",
+		"--unified=3"
+	], 1e4);
+	if (diffResult.error || diffResult.status !== 0) return [];
+	const rawOutput = readSpawnText(diffResult.stdout);
+	if (!rawOutput) return [];
+	const entries = [];
+	const lines = rawOutput.split(/\r?\n/);
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i] ?? "";
+		if (!line.startsWith("diff --git ")) {
+			i += 1;
+			continue;
+		}
+		i += 1;
+		let status = "modified";
+		let isBinary = false;
+		let oldPath;
+		let filePath = "";
+		let explicitModeSet = false;
+		while (i < lines.length) {
+			const headerLine = lines[i] ?? "";
+			if (headerLine.startsWith("diff --git ")) break;
+			if (headerLine.startsWith("@@ ")) break;
+			if (headerLine.startsWith("new file mode ")) {
+				status = "added";
+				explicitModeSet = true;
+			} else if (headerLine.startsWith("deleted file mode ")) {
+				status = "deleted";
+				explicitModeSet = true;
+			} else if (headerLine.startsWith("rename from ")) {
+				status = "renamed";
+				oldPath = headerLine.slice(12);
+			} else if (headerLine.startsWith("rename to ")) {
+				status = "renamed";
+				filePath = headerLine.slice(10);
+			} else if (headerLine.startsWith("Binary files ")) isBinary = true;
+			else if (headerLine.startsWith("similarity index ")) {
+				if (!explicitModeSet && status === "modified") status = "renamed";
+			}
+			i += 1;
+		}
+		if (!filePath) {
+			const headerMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+			if (headerMatch) {
+				oldPath = oldPath ?? headerMatch[1];
+				filePath = headerMatch[2];
+			}
+		}
+		if (!filePath) continue;
+		const hunks = [];
+		let truncated = false;
+		while (i < lines.length) {
+			const bodyLine = lines[i] ?? "";
+			if (bodyLine.startsWith("diff --git ")) break;
+			if (!bodyLine.startsWith("@@ ")) {
+				i += 1;
+				continue;
+			}
+			const hunkHeader = parseDiffHunkHeader(bodyLine);
+			if (!hunkHeader) {
+				i += 1;
+				continue;
+			}
+			i += 1;
+			const hunkLines = [];
+			let oldLineNo = hunkHeader.oldStart;
+			let newLineNo = hunkHeader.newStart;
+			let consumed = 0;
+			const expectedCount = hunkHeader.oldCount + hunkHeader.newCount;
+			while (i < lines.length && consumed < expectedCount) {
+				const hunkLine = lines[i] ?? "";
+				if (hunkLine.startsWith("diff --git ")) break;
+				if (hunkLine.startsWith("@@ ")) break;
+				if (hunkLine.startsWith("\\")) {
+					i += 1;
+					continue;
+				}
+				let content;
+				if (hunkLine.startsWith("+")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "added",
+						content,
+						newLineNo
+					});
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine.startsWith("-")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "deleted",
+						content,
+						oldLineNo
+					});
+					oldLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine.startsWith(" ")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "context",
+						content,
+						oldLineNo,
+						newLineNo
+					});
+					oldLineNo += 1;
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine === "") {
+					hunkLines.push({
+						type: "context",
+						content: "",
+						oldLineNo,
+						newLineNo
+					});
+					oldLineNo += 1;
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				break;
+			}
+			if (hunkLines.length > 0) hunks.push({
+				...hunkHeader,
+				lines: hunkLines
+			});
+			if (hunks.reduce((sum, h) => sum + h.lines.length, 0) >= PARSE_DIFF_MAX_LINES_PER_FILE) {
+				truncated = true;
+				break;
+			}
+		}
+		const entry = {
+			path: filePath,
+			status,
+			hunks
+		};
+		if (status === "renamed" && oldPath) entry.oldPath = oldPath;
+		if (isBinary || truncated) entry.isBinary = isBinary || void 0;
+		entries.push(entry);
+	}
+	return entries;
+}
 function isTreeSettingsEntry(type) {
 	return TREE_SETTINGS_ENTRY_TYPES.has(type);
 }
@@ -4531,6 +4714,23 @@ var WsRpcAdapter = class {
 					command: "list_git_branches",
 					success: true,
 					data: repoState
+				};
+			}
+			case "list_diff_entries": {
+				const cwd = this.sessionRuntime.currentGitCwd();
+				if (!cwd) return {
+					id: correlationId,
+					type: "response",
+					command: "list_diff_entries",
+					success: false,
+					error: "No working directory for the active session"
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "list_diff_entries",
+					success: true,
+					data: { entries: parseGitDiff(cwd) }
 				};
 			}
 			case "switch_git_branch": {

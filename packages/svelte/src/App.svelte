@@ -1271,6 +1271,20 @@
   });
 
   $effect(() => {
+    // When the Git tab is active and diff entries are empty, ensure we fetch.
+    // This handles the case where diff entries were invalidated (e.g. session
+    // switch) and the user hasn't manually triggered a refresh yet.
+    if (
+      outlineSidebarOpen &&
+      activeRightSidebarTabId === GIT_TAB_ID &&
+      bridge.diffEntries.length === 0 &&
+      !bridge.diffLoading
+    ) {
+      void bridge.fetchDiffEntries().catch(() => {});
+    }
+  });
+
+  $effect(() => {
     // Normalize rail widths when layout changes
     if (compactLayout) {
       if (activeRailResize) stopRailResize();

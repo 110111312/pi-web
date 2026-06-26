@@ -198,6 +198,13 @@ function workspaceMetadata(workspacePath, sessionPath) {
 		workspacePath: normalizedWorkspacePath
 	};
 }
+function safeStatMtime(filePath) {
+	try {
+		return fs.statSync(filePath).mtime.toISOString();
+	} catch {
+		return;
+	}
+}
 function normalizeSessionTimestamp(timestamp) {
 	const value = sessionTimestampSortValue(timestamp);
 	return Number.isFinite(value) ? new Date(value).toISOString() : timestamp;
@@ -495,7 +502,8 @@ function readSessionFileHeader(sessionPath) {
 	return {
 		id: header.id,
 		timestamp: typeof header.timestamp === "string" ? header.timestamp : void 0,
-		cwd: typeof header.cwd === "string" ? header.cwd : void 0
+		cwd: typeof header.cwd === "string" ? header.cwd : void 0,
+		parentSession: typeof header.parentSession === "string" ? header.parentSession : void 0
 	};
 }
 function readWorkspaceSessionSummary(sessionPath, running) {
@@ -503,6 +511,7 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 	const header = readSessionFileHeader(sessionPath);
 	if (!header) return null;
 	const timestamp = normalizeSessionTimestamp(header.timestamp);
+	const mtime = safeStatMtime(sessionPath);
 	const workspace = workspaceMetadata(header.cwd, sessionPath);
 	const firstUserMessage = findFirstUserMessageText(prefix);
 	const explicitName = readLatestSessionInfoName(sessionPath);
@@ -512,8 +521,9 @@ function readWorkspaceSessionSummary(sessionPath, running) {
 		path: sessionPath,
 		isRunning: running,
 		timestamp,
-		updatedAt: timestamp,
-		...workspace
+		updatedAt: normalizeSessionTimestamp(mtime ?? timestamp),
+		...workspace,
+		parentSession: header.parentSession
 	};
 }
 /**
@@ -685,6 +695,68 @@ function listWorkspaceFilesFallback(cwd) {
 function listWorkspaceEntries(cwd) {
 	return collectWorkspaceEntries(listWorkspaceFilesWithRipgrep(cwd) ?? listWorkspaceFilesFallback(cwd));
 }
+/**
+* Read a single directory and return its immediate children. Used for
+* lazy-loading the file tree — much faster than `listWorkspaceEntries` for
+* large workspaces because it doesn't recursively scan the entire tree.
+*
+* @param workspaceRoot Absolute path to the workspace root.
+* @param relativePath Directory path relative to the workspace root (e.g. "src" or "src/components"). Defaults to root.
+* @returns Array of directory entries, or an error object.
+*/
+function listDirectoryEntries(workspaceRoot, relativePath) {
+	const normalizedRoot = normalizeOptionalWorkspaceRoot(workspaceRoot);
+	if (!normalizedRoot) return { error: "No workspace root" };
+	let resolvedRoot;
+	try {
+		resolvedRoot = fs.realpathSync.native(normalizedRoot);
+	} catch {
+		return { error: "Workspace root not found" };
+	}
+	const trimmedRelative = relativePath?.trim() ?? "";
+	if (trimmedRelative.split(/[\\/]+/).some((segment) => segment === "..")) return { error: "Path is not inside the current workspace" };
+	const absoluteDirPath = trimmedRelative ? path.join(resolvedRoot, trimmedRelative) : resolvedRoot;
+	let resolvedDir;
+	try {
+		resolvedDir = fs.realpathSync.native(absoluteDirPath);
+	} catch {
+		return { error: "Directory not found" };
+	}
+	if (!isPathInsideRoot(resolvedRoot, resolvedDir)) return { error: "Path is not inside the current workspace" };
+	let stats;
+	try {
+		stats = fs.statSync(resolvedDir);
+	} catch {
+		return { error: "Directory not found" };
+	}
+	if (!stats.isDirectory()) return { error: "Path is not a directory" };
+	let items;
+	try {
+		items = fs.readdirSync(resolvedDir, { withFileTypes: true });
+	} catch {
+		return { error: "Failed to read directory" };
+	}
+	const entries = [];
+	for (const item of items) {
+		if (item.name === ".git") continue;
+		const entryRelativePath = trimmedRelative ? `${trimmedRelative}/${item.name}` : item.name;
+		if (item.isDirectory()) entries.push({
+			path: entryRelativePath,
+			kind: "directory"
+		});
+		else if (item.isFile()) entries.push({
+			path: entryRelativePath,
+			kind: "file"
+		});
+	}
+	entries.sort((a, b) => {
+		if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+		const aName = a.path.includes("/") ? a.path.split("/").pop() ?? a.path : a.path;
+		const bName = b.path.includes("/") ? b.path.split("/").pop() ?? b.path : b.path;
+		return aName.localeCompare(bName, void 0, { sensitivity: "base" });
+	});
+	return entries;
+}
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
 function isPathInsideRoot(rootPath, candidatePath) {
 	if (candidatePath === rootPath) return true;
@@ -735,6 +807,26 @@ function readWorkspaceFile(cwd, requestedPath) {
 		truncated,
 		totalBytes: contentBuffer.length,
 		lineCount: content.split(/\r?\n/).length
+	};
+}
+function writeWorkspaceFile(cwd, requestedPath, content) {
+	if (content.includes("\0")) return { error: "Cannot write binary content" };
+	let resolved;
+	try {
+		resolved = resolveWorkspaceFile(cwd, requestedPath);
+	} catch {
+		return { error: "Failed to resolve workspace file" };
+	}
+	if ("error" in resolved) return resolved;
+	try {
+		fs.writeFileSync(resolved.resolvedPath, content, "utf8");
+	} catch (err) {
+		return { error: err instanceof Error ? `Failed to write file: ${err.message}` : "Failed to write file" };
+	}
+	return {
+		path: resolved.displayPath,
+		absolutePath: resolved.resolvedPath,
+		bytesWritten: Buffer.byteLength(content, "utf8")
 	};
 }
 function runGitCommand(cwd, args, timeout = 2e3) {
@@ -815,6 +907,193 @@ function readGitRepoState(cwd) {
 		isDirty,
 		branches
 	};
+}
+/**
+* Maximum number of diff lines to emit per file. If a single file has more
+* lines than this across all hunks, the parser truncates to keep payloads
+* reasonable. Files at the limit can still be huge — this is a guardrail,
+* not a guarantee.
+*/
+const PARSE_DIFF_MAX_LINES_PER_FILE = 5e3;
+const HUNK_HEADER_REGEX = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+function parseDiffHunkHeader(line) {
+	const match = HUNK_HEADER_REGEX.exec(line);
+	if (!match) return null;
+	return {
+		oldStart: Number(match[1]),
+		oldCount: match[2] !== void 0 ? Number(match[2]) : 1,
+		newStart: Number(match[3]),
+		newCount: match[4] !== void 0 ? Number(match[4]) : 1
+	};
+}
+/**
+* Parse `git diff --no-color` output into structured diff entries.
+*
+* Returns an empty array if the directory is not a git repository, git is
+* unavailable, or the working tree has no unstaged changes. Each file's
+* diff is parsed into a sequence of hunks with typed lines (context/added/
+* deleted) and tracked line numbers.
+*/
+function parseGitDiff(cwd) {
+	const repoRootResult = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
+	if (repoRootResult.error || repoRootResult.status !== 0) return [];
+	const repoRoot = readSpawnText(repoRootResult.stdout).trim();
+	if (!repoRoot) return [];
+	const diffResult = runGitCommand(repoRoot, [
+		"diff",
+		"--no-color",
+		"--no-ext-diff",
+		"--unified=3"
+	], 1e4);
+	if (diffResult.error || diffResult.status !== 0) return [];
+	const rawOutput = readSpawnText(diffResult.stdout);
+	if (!rawOutput) return [];
+	const entries = [];
+	const lines = rawOutput.split(/\r?\n/);
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i] ?? "";
+		if (!line.startsWith("diff --git ")) {
+			i += 1;
+			continue;
+		}
+		i += 1;
+		let status = "modified";
+		let isBinary = false;
+		let oldPath;
+		let filePath = "";
+		let explicitModeSet = false;
+		while (i < lines.length) {
+			const headerLine = lines[i] ?? "";
+			if (headerLine.startsWith("diff --git ")) break;
+			if (headerLine.startsWith("@@ ")) break;
+			if (headerLine.startsWith("new file mode ")) {
+				status = "added";
+				explicitModeSet = true;
+			} else if (headerLine.startsWith("deleted file mode ")) {
+				status = "deleted";
+				explicitModeSet = true;
+			} else if (headerLine.startsWith("rename from ")) {
+				status = "renamed";
+				oldPath = headerLine.slice(12);
+			} else if (headerLine.startsWith("rename to ")) {
+				status = "renamed";
+				filePath = headerLine.slice(10);
+			} else if (headerLine.startsWith("Binary files ")) isBinary = true;
+			else if (headerLine.startsWith("similarity index ")) {
+				if (!explicitModeSet && status === "modified") status = "renamed";
+			}
+			i += 1;
+		}
+		if (!filePath) {
+			const headerMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+			if (headerMatch) {
+				oldPath = oldPath ?? headerMatch[1];
+				filePath = headerMatch[2];
+			}
+		}
+		if (!filePath) continue;
+		const hunks = [];
+		let truncated = false;
+		while (i < lines.length) {
+			const bodyLine = lines[i] ?? "";
+			if (bodyLine.startsWith("diff --git ")) break;
+			if (!bodyLine.startsWith("@@ ")) {
+				i += 1;
+				continue;
+			}
+			const hunkHeader = parseDiffHunkHeader(bodyLine);
+			if (!hunkHeader) {
+				i += 1;
+				continue;
+			}
+			i += 1;
+			const hunkLines = [];
+			let oldLineNo = hunkHeader.oldStart;
+			let newLineNo = hunkHeader.newStart;
+			let consumed = 0;
+			const expectedCount = hunkHeader.oldCount + hunkHeader.newCount;
+			while (i < lines.length && consumed < expectedCount) {
+				const hunkLine = lines[i] ?? "";
+				if (hunkLine.startsWith("diff --git ")) break;
+				if (hunkLine.startsWith("@@ ")) break;
+				if (hunkLine.startsWith("\\")) {
+					i += 1;
+					continue;
+				}
+				let content;
+				if (hunkLine.startsWith("+")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "added",
+						content,
+						newLineNo
+					});
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine.startsWith("-")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "deleted",
+						content,
+						oldLineNo
+					});
+					oldLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine.startsWith(" ")) {
+					content = hunkLine.slice(1);
+					hunkLines.push({
+						type: "context",
+						content,
+						oldLineNo,
+						newLineNo
+					});
+					oldLineNo += 1;
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				if (hunkLine === "") {
+					hunkLines.push({
+						type: "context",
+						content: "",
+						oldLineNo,
+						newLineNo
+					});
+					oldLineNo += 1;
+					newLineNo += 1;
+					consumed += 1;
+					i += 1;
+					continue;
+				}
+				break;
+			}
+			if (hunkLines.length > 0) hunks.push({
+				...hunkHeader,
+				lines: hunkLines
+			});
+			if (hunks.reduce((sum, h) => sum + h.lines.length, 0) >= PARSE_DIFF_MAX_LINES_PER_FILE) {
+				truncated = true;
+				break;
+			}
+		}
+		const entry = {
+			path: filePath,
+			status,
+			hunks
+		};
+		if (status === "renamed" && oldPath) entry.oldPath = oldPath;
+		if (isBinary || truncated) entry.isBinary = isBinary || void 0;
+		entries.push(entry);
+	}
+	return entries;
 }
 function isTreeSettingsEntry(type) {
 	return TREE_SETTINGS_ENTRY_TYPES.has(type);
@@ -3250,14 +3529,16 @@ var WsRpcAdapter = class {
 						const header = sessionManager.getHeader();
 						if (!header) return;
 						const workspace = workspaceMetadata(sessionManager.getCwd() || header.cwd || fallbackWorkspacePath, sessionPath);
+						const sessionMtime = safeStatMtime(sessionPath);
 						appendSession({
 							id: header.id,
 							name: sessionDisplayName(sessionManager, sessionPath),
 							path: sessionPath,
 							isRunning: sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath),
 							timestamp: normalizeSessionTimestamp(header.timestamp),
-							updatedAt: normalizeSessionTimestamp(header.timestamp),
-							...workspace
+							updatedAt: normalizeSessionTimestamp(sessionMtime ?? header.timestamp),
+							...workspace,
+							parentSession: header.parentSession
 						});
 					};
 					for (const sessionPath of listWorkspaceSessionFiles(workspacePath)) appendSession(readWorkspaceSessionSummary(sessionPath, sessionPath === liveSessionFile ? !this.context.state.isIdle() : this.sessionRuntime.isSessionRunning(sessionPath)));
@@ -3265,9 +3546,16 @@ var WsRpcAdapter = class {
 						appendSessionManager(this.context.state.sessionManager, liveSessionFile, this.context.state.cwd);
 						for (const sessionManager of this.sessionRuntime.getCachedSessionManagers()) appendSessionManager(sessionManager, sessionManager.getSessionFile(), this.context.state.cwd, { requireOnDisk: false });
 					}
-					const filteredSessions = sessions.filter((session) => isAfterSessionCursor(session, cursor)).filter((session) => sessionMatchesListQuery(session, command.query)).sort(compareSessionsByRecency);
-					const limitedSessions = limit ? filteredSessions.slice(0, limit) : filteredSessions;
 					const activeSessionPath = this.sessionRuntime.currentTranscriptSessionPath() ?? liveSessionFile;
+					const allSessionPaths = new Set(sessions.map((s) => s.path));
+					const filteredSessions = sessions.filter((session) => {
+						if (!session.parentSession) return true;
+						if (!allSessionPaths.has(session.parentSession)) return true;
+						if (session.path === liveSessionFile) return true;
+						if (session.path === activeSessionPath) return true;
+						return false;
+					}).filter((session) => isAfterSessionCursor(session, cursor)).filter((session) => sessionMatchesListQuery(session, command.query)).sort(compareSessionsByRecency);
+					const limitedSessions = limit ? filteredSessions.slice(0, limit) : filteredSessions;
 					const pageSessions = [...limitedSessions];
 					if (command.includeActive !== false && activeSessionPath) {
 						const activeSession = filteredSessions.find((session) => session.path === activeSessionPath);
@@ -3339,6 +3627,31 @@ var WsRpcAdapter = class {
 					data: { entries: this.workspaceEntriesCache.entries }
 				};
 			}
+			case "list_directory_entries": {
+				const workspaceRoot = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				if (!workspaceRoot) return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: false,
+					error: "No workspace root"
+				};
+				const result = listDirectoryEntries(workspaceRoot, command.path);
+				if ("error" in result) return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: false,
+					error: result.error
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: true,
+					data: { entries: result }
+				};
+			}
 			case "read_workspace_file": {
 				const result = readWorkspaceFile(normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd(), command.path);
 				if ("error" in result) return {
@@ -3352,6 +3665,23 @@ var WsRpcAdapter = class {
 					id: correlationId,
 					type: "response",
 					command: "read_workspace_file",
+					success: true,
+					data: result
+				};
+			}
+			case "write_workspace_file": {
+				const result = writeWorkspaceFile(normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd(), command.path, command.content);
+				if ("error" in result) return {
+					id: correlationId,
+					type: "response",
+					command: "write_workspace_file",
+					success: false,
+					error: result.error
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "write_workspace_file",
 					success: true,
 					data: result
 				};
@@ -3371,6 +3701,23 @@ var WsRpcAdapter = class {
 					command: "list_git_branches",
 					success: true,
 					data: repoState
+				};
+			}
+			case "list_diff_entries": {
+				const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+				if (!repoState) return {
+					id: correlationId,
+					type: "response",
+					command: "list_diff_entries",
+					success: false,
+					error: "No git repository found for the active session"
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "list_diff_entries",
+					success: true,
+					data: { entries: parseGitDiff(repoState.repoRoot) }
 				};
 			}
 			case "switch_git_branch": {
@@ -3569,4 +3916,4 @@ var WsRpcAdapter = class {
 	}
 };
 //#endregion
-export { WsRpcAdapter };
+export { WsRpcAdapter, parseGitDiff };

@@ -6,8 +6,6 @@
   } from "@pi-web/bridge/types";
   import GitBranch from "lucide-svelte/icons/git-branch";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
-  import ChevronDown from "lucide-svelte/icons/chevron-down";
-  import ChevronRight from "lucide-svelte/icons/chevron-right";
 
   let {
     diffEntries = [] as readonly RpcDiffEntry[],
@@ -30,9 +28,6 @@
   } = $props();
 
   let query = $state("");
-
-  let expandedTracked = $state(true);
-  let expandedUntracked = $state(false);
 
   function statusBadge(status: RpcDiffFileStatus): string {
     switch (status) {
@@ -62,13 +57,6 @@
         (e.oldPath?.toLowerCase().includes(q) ?? false),
     );
   }
-
-  let trackedEntries = $derived(
-    getFilteredEntries().filter((e) => e.status !== "untracked"),
-  );
-  let untrackedEntries = $derived(
-    getFilteredEntries().filter((e) => e.status === "untracked"),
-  );
 </script>
 
 <div class="git-rail">
@@ -78,7 +66,7 @@
       <select
         id="git-repo-select"
         class="git-repo-select"
-        value={selectedRepoRoot ?? gitRepos[0]?.root ?? ""}
+        value={selectedRepoRoot ?? ""}
         disabled={gitReposLoading}
         onchange={(e) =>
           onSelectRepo(
@@ -129,95 +117,37 @@
         <p class="empty-title">No unstaged changes</p>
         <p class="empty-copy">Working tree is clean.</p>
       </div>
-    {:else if getFilteredEntries().length === 0 && query.trim()}
+    {:else if getFilteredEntries().length === 0}
       <div class="empty-state">
         <p class="empty-title">No matches</p>
         <p class="empty-copy">No files match "{query.trim()}".</p>
       </div>
     {:else}
-      {#if trackedEntries.length > 0}
-        <div class="diff-group">
-          <button
-            type="button"
-            class="diff-group-header"
-            onclick={() => (expandedTracked = !expandedTracked)}
-          >
-            {#if expandedTracked}
-              <ChevronDown size={12} aria-hidden="true" />
-            {:else}
-              <ChevronRight size={12} aria-hidden="true" />
-            {/if}
-            <span class="diff-group-label">Changes ({trackedEntries.length})</span>
-          </button>
-          {#if expandedTracked}
-            <ol class="diff-list">
-              {#each trackedEntries as entry (entry.path)}
-                <li class="diff-entry">
-                  <button
-                    class="diff-entry-row"
-                    type="button"
-                    onclick={() => onOpenFileDiff(entry)}
-                    title={entry.path}
-                  >
-                    <span
-                      class={`status-badge status-${entry.status}`}
-                      aria-hidden="true"
-                    >
-                      {statusBadge(entry.status)}
-                    </span>
-                    <span class="diff-entry-path">
-                      {#if entry.oldPath && entry.oldPath !== entry.path}
-                        <span class="diff-entry-rename">{entry.oldPath} → </span>
-                      {/if}
-                      <span class="label">{entry.path}</span>
-                    </span>
-                  </button>
-                </li>
-              {/each}
-            </ol>
-          {/if}
-        </div>
-      {/if}
-      {#if untrackedEntries.length > 0}
-        <div class="diff-group">
-          <button
-            type="button"
-            class="diff-group-header"
-            onclick={() => (expandedUntracked = !expandedUntracked)}
-          >
-            {#if expandedUntracked}
-              <ChevronDown size={12} aria-hidden="true" />
-            {:else}
-              <ChevronRight size={12} aria-hidden="true" />
-            {/if}
-            <span class="diff-group-label">Untracked ({untrackedEntries.length})</span>
-          </button>
-          {#if expandedUntracked}
-            <ol class="diff-list">
-              {#each untrackedEntries as entry (entry.path)}
-                <li class="diff-entry">
-                  <button
-                    class="diff-entry-row"
-                    type="button"
-                    onclick={() => onOpenFileDiff(entry)}
-                    title={entry.path}
-                  >
-                    <span
-                      class="status-badge status-untracked"
-                      aria-hidden="true"
-                    >
-                      U
-                    </span>
-                    <span class="diff-entry-path">
-                      <span class="label">{entry.path}</span>
-                    </span>
-                  </button>
-                </li>
-              {/each}
-            </ol>
-          {/if}
-        </div>
-      {/if}
+      <ol class="diff-list">
+        {#each getFilteredEntries() as entry (entry.path)}
+          <li class="diff-entry">
+            <button
+              class="diff-entry-row"
+              type="button"
+              onclick={() => onOpenFileDiff(entry)}
+              title={entry.path}
+            >
+              <span
+                class={`status-badge status-${entry.status}`}
+                aria-hidden="true"
+              >
+                {statusBadge(entry.status)}
+              </span>
+              <span class="diff-entry-path">
+                {#if entry.oldPath && entry.oldPath !== entry.path}
+                  <span class="diff-entry-rename">{entry.oldPath} → </span>
+                {/if}
+                <span class="label">{entry.path}</span>
+              </span>
+            </button>
+          </li>
+        {/each}
+      </ol>
     {/if}
   </div>
 </div>
@@ -349,41 +279,6 @@
     min-height: 0;
     overflow: auto;
     scrollbar-width: thin;
-  }
-
-  .diff-group {
-    margin-bottom: 4px;
-  }
-
-  .diff-group-header {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    width: 100%;
-    padding: 4px 8px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    font: inherit;
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
-  }
-
-  .diff-group-header:hover {
-    background: var(--surface-hover);
-    color: var(--text);
-  }
-
-  .diff-group-label {
-    flex: 1;
-    text-align: left;
   }
 
   .diff-list {

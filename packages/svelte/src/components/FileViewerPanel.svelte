@@ -4,7 +4,7 @@
   import Pencil from "lucide-svelte/icons/pencil";
   import Save from "lucide-svelte/icons/save";
   import X from "lucide-svelte/icons/x";
-  import { highlightCodeLinesHtml } from "../utils/codeHighlight";
+  import { highlightCodeHtml, highlightCodeLinesHtml } from "../utils/codeHighlight";
 
   type WriteResult = {
     path: string;
@@ -266,7 +266,9 @@
     const content = editedContent;
     clearTimeout(editHighlightTimer);
     editHighlightTimer = setTimeout(() => {
-      highlightCodeLinesHtml(content, path).then((html) => {
+      // Use highlightCodeHtml (no line numbers) for edit mode so the
+      // highlighted text aligns pixel-perfectly with the transparent textarea.
+      highlightCodeHtml(content, path).then((html) => {
         if (version !== editHighlightVersion) return;
         editHighlightHtml = html;
       });
@@ -577,57 +579,29 @@
     overflow: hidden;
     pointer-events: none;
     z-index: 1;
+    /* Padding must match .file-viewer-editor exactly for pixel-perfect overlay */
     padding: 8px 14px;
     font-family: var(--pi-font-mono);
     font-size: 0.72rem;
     line-height: 1.35;
-    white-space: pre;
     tab-size: 2;
     color: var(--text);
   }
 
   .file-viewer-editor-highlight :global(pre) {
     margin: 0;
-    padding: 2px 0 6px;
+    padding: 0;
     overflow: visible;
     background: transparent !important;
   }
 
   .file-viewer-editor-highlight :global(code) {
     display: block;
-    min-width: max-content;
     font-family: var(--pi-font-mono);
     font-size: 0.72rem;
     line-height: 1.35;
-    white-space: normal;
-  }
-
-  .file-viewer-editor-highlight :global(.code-line) {
-    display: block;
-    position: relative;
-    padding: 0 14px 0 62px;
     white-space: pre;
-    line-height: 1.35;
-    background: transparent;
-  }
-
-  .file-viewer-editor-highlight :global(.code-line:empty)::after {
-    content: " ";
-    visibility: hidden;
-  }
-
-  .file-viewer-editor-highlight :global(.code-line)::before {
-    content: attr(data-line);
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 50px;
-    padding-right: 12px;
-    border-right: 1px solid var(--border);
-    color: var(--text-subtle);
-    text-align: right;
-    line-height: 1.35;
-    user-select: none;
+    tab-size: 2;
   }
 
   .file-viewer-editor {
@@ -637,6 +611,7 @@
     width: 100%;
     height: 100%;
     min-height: 100%;
+    /* Padding must match .file-viewer-editor-highlight exactly */
     padding: 8px 14px;
     border: none;
     outline: none;

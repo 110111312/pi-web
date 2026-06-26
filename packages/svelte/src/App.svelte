@@ -1305,7 +1305,7 @@
     if (
       outlineSidebarOpen &&
       activeRightSidebarTabId === GIT_TAB_ID &&
-      bridge.gitRepos.length === 0 &&
+      bridge.gitReposLoaded === false &&
       !bridge.gitReposLoading
     ) {
       void bridge.fetchGitRepos().catch(() => {});

@@ -1990,6 +1990,13 @@ export function listGitRepos(cwd: string): RpcGitRepoInfo[] {
   const seen = new Set<string>();
 
   function tryAdd(candidate: string): void {
+    // Quick check: skip directories that don't contain a .git subdirectory.
+    // This avoids expensive git commands for clearly non-repo directories.
+    try {
+      fs.accessSync(path.join(candidate, ".git"));
+    } catch {
+      return;
+    }
     const repo = readGitRepoState(candidate);
     if (!repo) return;
     if (seen.has(repo.repoRoot)) return;

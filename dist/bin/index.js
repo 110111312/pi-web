@@ -2156,6 +2156,11 @@ function listGitRepos(cwd) {
 	const repos = [];
 	const seen = /* @__PURE__ */ new Set();
 	function tryAdd(candidate) {
+		try {
+			fs.accessSync(path.join(candidate, ".git"));
+		} catch {
+			return;
+		}
 		const repo = readGitRepoState(candidate);
 		if (!repo) return;
 		if (seen.has(repo.repoRoot)) return;

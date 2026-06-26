@@ -7,6 +7,7 @@ import type {
   RpcImageContent,
   RpcResponse,
   RpcSessionState,
+  RpcDirectoryEntry,
   RpcSessionStats,
   RpcSlashCommand,
   RpcThinkingLevel,
@@ -1773,6 +1774,26 @@ export function refreshWorkspaceEntries(): Promise<RpcWorkspaceEntry[]> {
   return fetchWorkspaceEntries(true);
 }
 
+/**
+ * Fetch the immediate children of a directory in the current workspace.
+ * Empty path ("") lists the workspace root. Used by the lazy-loading
+ * file browser to load directories on demand.
+ */
+export async function fetchDirectoryEntries(
+  path: string = "",
+): Promise<RpcDirectoryEntry[]> {
+  const wp = getDisplayedWorkspacePath();
+  const resp = await sendCommand({
+    type: "list_directory_entries",
+    path,
+    ...(wp ? { workspacePath: wp } : {}),
+  });
+  if (!resp.success)
+    throw new Error(resp.error ?? "Failed to list directory entries");
+  const data = resp.data as { entries?: RpcDirectoryEntry[] } | undefined;
+  return Array.isArray(data?.entries) ? data.entries : [];
+}
+
 export async function readWorkspaceFile(
   path: string,
 ): Promise<RpcWorkspaceFile> {
@@ -2787,6 +2808,7 @@ export function initBridge() {
     loadOlderTranscriptPage,
     fetchWorkspaceEntries,
     refreshWorkspaceEntries,
+    fetchDirectoryEntries,
     readWorkspaceFile,
     writeWorkspaceFile,
     loadWorkspaceSessions,

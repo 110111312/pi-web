@@ -1,81 +1,115 @@
 <script lang="ts">
-  import type { RpcWorkspaceEntry } from "@pi-web/bridge/types";
+  import type { RpcDirectoryEntry } from "@pi-web/bridge/types";
   import ChevronDown from "lucide-svelte/icons/chevron-down";
   import ChevronRight from "lucide-svelte/icons/chevron-right";
   import File from "lucide-svelte/icons/file";
   import Folder from "lucide-svelte/icons/folder";
+  import Loader from "lucide-svelte/icons/loader";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
-  import { buildFileTree, filterFileTree, type FileTreeNode } from "../utils/fileTree";
 
   let {
-    entries = [] as readonly RpcWorkspaceEntry[],
-    loading = false,
+    onFetchDirectory = (_: string) =>
+      Promise.resolve([] as RpcDirectoryEntry[]),
     onOpenFile = (_: string) => {},
     onRefresh,
+    loading = false,
   }: {
-    entries?: readonly RpcWorkspaceEntry[];
-    loading?: boolean;
+    onFetchDirectory?: (path: string) => Promise<RpcDirectoryEntry[]>;
     onOpenFile?: (path: string) => void;
     onRefresh?: () => void;
+    loading?: boolean;
   } = $props();
 
-  let query = $state("");
+  // Cache of loaded directory contents: path -> entries
+  let directoryCache = $state<Map<string, RpcDirectoryEntry[]>>(new Map());
+  // Paths currently being loaded
+  let loadingDirs = $state<Set<string>>(new Set());
+  // Paths currently expanded
   let expanded = $state<Set<string>>(new Set());
+  // Search query
+  let query = $state("");
+  // Whether the root directory is being loaded
+  let rootLoading = $state(true);
+  // Track if root has been loaded at least once
+  let rootLoaded = $state(false);
 
-  let baseTree = $derived(buildFileTree(entries));
+  function displayName(entryPath: string): string {
+    const parts = entryPath.split("/");
+    return parts[parts.length - 1] || entryPath;
+  }
 
-  let filteredTree = $derived(filterFileTree(baseTree, query));
-
-  // Ensure all directories that contain a match are visible (filtered tree
-  // already keeps ancestors). When the query is empty we trust the user's
-  // own expanded state; when filtered, force-expand ancestors of matches.
-  let visibleTree = $derived.by((): FileTreeNode[] => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      return pruneCollapsed(baseTree, expanded);
+  // Load root directory on mount
+  $effect(() => {
+    if (!rootLoaded && !loadingDirs.has("")) {
+      loadDirectory("");
     }
-    // For filtered views, always show the matched sub-tree fully expanded.
-    return filteredTree;
   });
 
-  function pruneCollapsed(
-    nodes: FileTreeNode[],
-    expandedSet: Set<string>,
-  ): FileTreeNode[] {
-    const result: FileTreeNode[] = [];
-    for (const node of nodes) {
-      if (node.kind === "file") {
-        result.push(node);
-        continue;
-      }
-      if (expandedSet.has(node.path)) {
-        result.push({
-          ...node,
-          children: pruneCollapsed(node.children, expandedSet),
-        });
-      } else {
-        result.push({ ...node, children: [] });
-      }
+  async function loadDirectory(dirPath: string) {
+    if (directoryCache.has(dirPath)) return;
+    loadingDirs = new Set([...loadingDirs, dirPath]);
+    try {
+      const entries = await onFetchDirectory(dirPath);
+      directoryCache = new Map(directoryCache).set(dirPath, entries);
+    } catch {
+      // On error, don't cache — allow retry on next expand
+    } finally {
+      const next = new Set(loadingDirs);
+      next.delete(dirPath);
+      loadingDirs = next;
+      if (dirPath === "") rootLoading = false;
+      rootLoaded = true;
     }
-    return result;
   }
 
-  function toggle(path: string) {
-    const next = new Set(expanded);
-    if (next.has(path)) {
-      next.delete(path);
+  function toggle(dirPath: string) {
+    if (expanded.has(dirPath)) {
+      const next = new Set(expanded);
+      next.delete(dirPath);
+      expanded = next;
     } else {
-      next.add(path);
+      expanded = new Set([...expanded, dirPath]);
+      if (!directoryCache.has(dirPath)) {
+        loadDirectory(dirPath);
+      }
     }
-    expanded = next;
   }
 
-  function openNode(node: FileTreeNode) {
-    if (node.kind === "directory") {
-      toggle(node.path);
+  function handleNodeClick(entry: RpcDirectoryEntry) {
+    if (entry.kind === "directory") {
+      toggle(entry.path);
     } else {
-      onOpenFile(node.path);
+      onOpenFile(entry.path);
     }
+  }
+
+  function refresh() {
+    directoryCache = new Map();
+    expanded = new Set();
+    rootLoading = true;
+    rootLoaded = false;
+    onRefresh?.();
+    loadDirectory("");
+  }
+
+  function getFilteredEntries(dirPath: string): RpcDirectoryEntry[] {
+    const entries = directoryCache.get(dirPath);
+    if (!entries) return [];
+    const trimmed = query.trim();
+    if (!trimmed) return entries;
+    const q = trimmed.toLowerCase();
+    return entries.filter(
+      e =>
+        displayName(e.path).toLowerCase().includes(q) ||
+        e.path.toLowerCase().includes(q),
+    );
+  }
+
+  function shouldShowChevron(entry: RpcDirectoryEntry): boolean {
+    if (entry.kind === "file") return false;
+    const cached = directoryCache.get(entry.path);
+    if (cached !== undefined) return cached.length > 0;
+    return entry.hasChildren !== false;
   }
 </script>
 
@@ -93,14 +127,13 @@
         <button
           type="button"
           class="refresh-btn"
-          onclick={() => onRefresh?.()}
+          onclick={refresh}
           title="Refresh file list"
           aria-label="Refresh file list"
-          disabled={loading}
         >
           <RefreshCw
             size={13}
-            class={`refresh-icon${loading ? " spin" : ""}`}
+            class={`refresh-icon${rootLoading ? " spin" : ""}`}
             aria-hidden="true"
           />
         </button>
@@ -109,73 +142,100 @@
   </div>
 
   <div class="tree-scroll">
-    {#if loading}
+    {#if rootLoading && directoryCache.size === 0}
       <div class="empty-state">
         <p class="empty-title">Loading…</p>
       </div>
-    {:else if entries.length === 0}
+    {:else if directoryCache.has("") && getFilteredEntries("").length === 0 && !query.trim()}
       <div class="empty-state">
         <p class="empty-title">No files</p>
         <p class="empty-copy">This workspace has no readable files yet.</p>
       </div>
-    {:else if visibleTree.length === 0}
+    {:else if directoryCache.has("") && getFilteredEntries("").length === 0 && query.trim()}
       <div class="empty-state">
         <p class="empty-title">No matches</p>
-        <p class="empty-copy">No files match “{query.trim()}”.</p>
+        <p class="empty-copy">No files match "{query.trim()}".</p>
       </div>
-    {:else}
+    {:else if directoryCache.has("")}
       <ol class="tree-list" role="tree">
-        {#each visibleTree as node (node.path)}
-          {@render treeRow(node, 0)}
+        {#each getFilteredEntries("") as entry (entry.path)}
+          {@render treeNode(entry, 0)}
         {/each}
       </ol>
     {/if}
   </div>
 </div>
 
-{#snippet treeRow(node: FileTreeNode, depth: number)}
+{#snippet treeNode(entry: RpcDirectoryEntry, depth: number)}
   <li
     class="tree-row"
-    class:is-dir={node.kind === "directory"}
-    class:is-file={node.kind === "file"}
+    class:is-dir={entry.kind === "directory"}
+    class:is-file={entry.kind === "file"}
     role="treeitem"
-    aria-expanded={node.kind === "directory" ? expanded.has(node.path) : undefined}
+    aria-expanded={entry.kind === "directory"
+      ? expanded.has(entry.path)
+      : undefined}
   >
     <button
       class="tree-item"
       type="button"
       style={`padding-left: ${6 + depth * 14}px`}
-      onclick={() => openNode(node)}
-      title={node.path}
+      onclick={() => handleNodeClick(entry)}
+      title={entry.path}
     >
-      {#if node.kind === "directory"}
-        <span class="chevron" aria-hidden="true">
-          {#if expanded.has(node.path)}
+      {#if entry.kind === "directory"}
+        {#if loadingDirs.has(entry.path)}
+          <span class="chevron" aria-hidden="true">
+            <Loader size={11} class="spin-icon" />
+          </span>
+        {:else if expanded.has(entry.path)}
+          <span class="chevron" aria-hidden="true">
             <ChevronDown size={12} />
-          {:else}
+          </span>
+        {:else if shouldShowChevron(entry)}
+          <span class="chevron" aria-hidden="true">
             <ChevronRight size={12} />
-          {/if}
-        </span>
+          </span>
+        {:else}
+          <span class="chevron-spacer" aria-hidden="true"></span>
+        {/if}
         <span class="icon icon-dir" aria-hidden="true">
           <Folder size={13} />
         </span>
-        <span class="label">{node.name}</span>
+        <span class="label">{displayName(entry.path)}</span>
       {:else}
         <span class="chevron-spacer" aria-hidden="true"></span>
         <span class="icon icon-file" aria-hidden="true">
           <File size={13} />
         </span>
-        <span class="label">{node.name}</span>
+        <span class="label">{displayName(entry.path)}</span>
       {/if}
     </button>
-    {#if node.kind === "directory" && expanded.has(node.path) && node.children.length > 0}
+    {#if entry.kind === "directory" && expanded.has(entry.path)}
+      {@render directoryChildren(entry.path, depth + 1)}
+    {/if}
+  </li>
+{/snippet}
+
+{#snippet directoryChildren(dirPath: string, depth: number)}
+  {#if loadingDirs.has(dirPath)}
+    <div class="tree-loading" style={`padding-left: ${6 + depth * 14}px`}>
+      <Loader size={11} class="spin-icon" />
+      <span>Loading…</span>
+    </div>
+  {:else if directoryCache.has(dirPath)}
+    {#if getFilteredEntries(dirPath).length === 0}
+      <div class="tree-empty-dir" style={`padding-left: ${6 + depth * 14}px`}>
+        (empty)
+      </div>
+    {:else}
       <ol class="tree-children" role="group">
-        {#each node.children as child (child.path)}
-          {@render treeRow(child, depth + 1)}
+        {#each getFilteredEntries(dirPath) as child (child.path)}
+          {@render treeNode(child, depth)}
         {/each}
       </ol>
     {/if}
-  </li>
+  {/if}
 {/snippet}
 
 <style>
@@ -244,15 +304,10 @@
       border-color 0.12s ease;
   }
 
-  .refresh-btn:hover:not(:disabled) {
+  .refresh-btn:hover {
     background: var(--surface-hover);
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  }
-
-  .refresh-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 
   .refresh-icon {
@@ -260,6 +315,10 @@
   }
 
   .refresh-icon.spin {
+    animation: refresh-spin 1s linear infinite;
+  }
+
+  .spin-icon {
     animation: refresh-spin 1s linear infinite;
   }
 
@@ -356,6 +415,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .tree-loading,
+  .tree-empty-dir {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    color: var(--text-subtle);
+  }
+
+  .tree-empty-dir {
+    font-style: italic;
+    color: var(--text-subtle);
   }
 
   .empty-state {

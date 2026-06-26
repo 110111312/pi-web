@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    RpcDirectoryEntry,
     RpcImageContent,
     RpcThinkingLevel,
     RpcWorkspaceEntry,
@@ -925,6 +926,10 @@
     void bridge.refreshWorkspaceEntries().catch(() => {});
   }
 
+  function fetchDirectoryEntries(path: string): Promise<RpcDirectoryEntry[]> {
+    return bridge.fetchDirectoryEntries(path);
+  }
+
   function handleOpenFileReference(payload: {
     path: string;
     lineNumber: number;
@@ -1484,8 +1489,7 @@
       hasTreeTab={true}
       {hasFilesTab}
       activeTabId={activeRightSidebarTabId}
-      workspaceEntries={displayedWorkspaceEntries}
-      workspaceEntriesLoading={displayedWorkspaceEntriesLoading}
+      onFetchDirectory={fetchDirectoryEntries}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
       onSelectTreeEntry={handleTreeEntrySelect}

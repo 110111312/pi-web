@@ -52,6 +52,7 @@ import type {
   RpcTranscriptSnapshotEvent,
   RpcTranscriptStartEvent,
   RpcTranscriptUpsertEvent,
+  RpcDirectoryEntry,
   RpcTreeEntry,
   RpcWorkspaceEntry,
   RpcWorkspaceFile,
@@ -1315,6 +1316,125 @@ function listWorkspaceEntries(cwd: string): RpcWorkspaceEntry[] {
   const filePaths =
     listWorkspaceFilesWithRipgrep(cwd) ?? listWorkspaceFilesFallback(cwd);
   return collectWorkspaceEntries(filePaths);
+}
+
+/**
+ * Read a single directory and return its immediate children. Used for
+ * lazy-loading the file tree — much faster than `listWorkspaceEntries` for
+ * large workspaces because it doesn't recursively scan the entire tree.
+ *
+ * @param workspaceRoot Absolute path to the workspace root.
+ * @param relativePath Directory path relative to the workspace root (e.g. "src" or "src/components"). Defaults to root.
+ * @returns Array of directory entries, or an error object.
+ */
+function listDirectoryEntries(
+  workspaceRoot: string,
+  relativePath?: string,
+): RpcDirectoryEntry[] | { error: string } {
+  const normalizedRoot = normalizeOptionalWorkspaceRoot(workspaceRoot);
+  if (!normalizedRoot) {
+    return { error: "No workspace root" };
+  }
+
+  // Resolve the workspace root to its real path so symlinks (e.g. /var on
+  // macOS resolves to /private/var) don't break the inside-root check below.
+  let resolvedRoot: string;
+  try {
+    resolvedRoot = fs.realpathSync.native(normalizedRoot);
+  } catch {
+    return { error: "Workspace root not found" };
+  }
+
+  // Resolve the target directory path inside the workspace root.
+  const trimmedRelative = relativePath?.trim() ?? "";
+  // Reject obvious path traversal attempts before touching the filesystem.
+  if (
+    trimmedRelative.split(/[\\/]+/).some(segment => segment === "..")
+  ) {
+    return { error: "Path is not inside the current workspace" };
+  }
+  const absoluteDirPath = trimmedRelative
+    ? path.join(resolvedRoot, trimmedRelative)
+    : resolvedRoot;
+
+  // Security: ensure the resolved directory is still inside the workspace.
+  let resolvedDir: string;
+  try {
+    resolvedDir = fs.realpathSync.native(absoluteDirPath);
+  } catch {
+    return { error: "Directory not found" };
+  }
+  if (!isPathInsideRoot(resolvedRoot, resolvedDir)) {
+    return { error: "Path is not inside the current workspace" };
+  }
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(resolvedDir);
+  } catch {
+    return { error: "Directory not found" };
+  }
+  if (!stats.isDirectory()) {
+    return { error: "Path is not a directory" };
+  }
+
+  let items: fs.Dirent[];
+  try {
+    items = fs.readdirSync(resolvedDir, { withFileTypes: true });
+  } catch {
+    return { error: "Failed to read directory" };
+  }
+
+  const entries: RpcDirectoryEntry[] = [];
+
+  for (const item of items) {
+    // Skip .git directory everywhere — it's noise in the file browser.
+    if (item.name === ".git") continue;
+
+    const entryRelativePath = trimmedRelative
+      ? `${trimmedRelative}/${item.name}`
+      : item.name;
+
+    if (item.isDirectory()) {
+      // Probe whether the directory has any visible (non-.git) children so
+      // the client can render the correct chevron state without an extra
+      // round-trip.
+      let hasChildren = true;
+      try {
+        const subItems = fs.readdirSync(
+          path.join(resolvedDir, item.name),
+          { withFileTypes: true },
+        );
+        hasChildren = subItems.some(sub => sub.name !== ".git");
+      } catch {
+        // Permission denied or similar — keep hasChildren=true so the user
+        // can try to expand and get a proper error.
+      }
+      entries.push({
+        path: entryRelativePath,
+        kind: "directory",
+        hasChildren,
+      });
+    } else if (item.isFile()) {
+      entries.push({ path: entryRelativePath, kind: "file" });
+    }
+    // Skip symlinks and other non-file/non-dir entries to keep the tree
+    // clean. Users can still open them via the path/line reference.
+  }
+
+  // Sort: directories first, then alphabetical (case-insensitive) within
+  // each group.
+  entries.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    const aName = a.path.includes("/")
+      ? a.path.split("/").pop() ?? a.path
+      : a.path;
+    const bName = b.path.includes("/")
+      ? b.path.split("/").pop() ?? b.path
+      : b.path;
+    return aName.localeCompare(bName, undefined, { sensitivity: "base" });
+  });
+
+  return entries;
 }
 
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
@@ -6014,6 +6134,38 @@ export class WsRpcAdapter {
           command: "list_workspace_entries" as const,
           success: true as const,
           data: { entries: this.workspaceEntriesCache.entries },
+        };
+      }
+
+      case "list_directory_entries": {
+        const workspaceRoot =
+          normalizeOptionalWorkspaceRoot(command.workspacePath) ||
+          this.sessionRuntime.currentGitCwd();
+        if (!workspaceRoot) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_directory_entries" as const,
+            success: false as const,
+            error: "No workspace root",
+          };
+        }
+        const result = listDirectoryEntries(workspaceRoot, command.path);
+        if ("error" in result) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_directory_entries" as const,
+            success: false as const,
+            error: result.error,
+          };
+        }
+        return {
+          id: correlationId,
+          type: "response" as const,
+          command: "list_directory_entries" as const,
+          success: true as const,
+          data: { entries: result },
         };
       }
 

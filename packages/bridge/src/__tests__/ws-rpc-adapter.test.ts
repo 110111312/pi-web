@@ -3295,6 +3295,209 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     });
 
+    it("should handle list_directory_entries command for root", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-dir-root-test-"),
+      );
+      // Create a mix of files, dirs, and a .git directory.
+      fs.mkdirSync(path.join(tmpDir, "src", "components"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, ".git"), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "# test\n");
+      fs.writeFileSync(path.join(tmpDir, "src", "index.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "components", "Button.tsx"),
+        "<Button />\n",
+      );
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-dir-root",
+        type: "list_directory_entries",
+        workspacePath: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.command).toBe("list_directory_entries");
+      expect(response.payload.success).toBe(true);
+      // .git must not appear in the results.
+      expect(response.payload.data.entries).not.toContainEqual(
+        expect.objectContaining({ path: ".git" }),
+      );
+      // Directories sort first (hasChildren true for non-empty).
+      expect(response.payload.data.entries).toEqual([
+        {
+          path: "src",
+          kind: "directory",
+          hasChildren: true,
+        },
+        {
+          path: "README.md",
+          kind: "file",
+        },
+      ]);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should handle list_directory_entries for a subdirectory", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-dir-sub-test-"),
+      );
+      fs.mkdirSync(path.join(tmpDir, "src", "components"), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "src", "index.ts"), "export {};\n");
+      fs.writeFileSync(
+        path.join(tmpDir, "src", "components", "Button.tsx"),
+        "<Button />\n",
+      );
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "# root\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-dir-sub",
+        type: "list_directory_entries",
+        workspacePath: tmpDir,
+        path: "src",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.success).toBe(true);
+      // Only src/* entries; nothing from root.
+      expect(response.payload.data.entries).toEqual([
+        {
+          path: "src/components",
+          kind: "directory",
+          hasChildren: true,
+        },
+        { path: "src/index.ts", kind: "file" },
+      ]);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should reject list_directory_entries with path outside workspace", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-dir-outside-test-"),
+      );
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-dir-outside",
+        type: "list_directory_entries",
+        workspacePath: tmpDir,
+        // path traversal attempt
+        path: "../../../etc",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.command).toBe("list_directory_entries");
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toMatch(/inside the current workspace/i);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should mark empty directories with hasChildren=false", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-dir-empty-test-"),
+      );
+      fs.mkdirSync(path.join(tmpDir, "empty-dir"), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "file.txt"), "hello\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-dir-empty",
+        type: "list_directory_entries",
+        workspacePath: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.success).toBe(true);
+      const emptyDir = response.payload.data.entries.find(
+        (e: { path: string }) => e.path === "empty-dir",
+      );
+      expect(emptyDir).toBeDefined();
+      expect(emptyDir.kind).toBe("directory");
+      expect(emptyDir.hasChildren).toBe(false);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should return error when list_directory_entries path is not a directory", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-dir-notdir-test-"),
+      );
+      fs.writeFileSync(path.join(tmpDir, "regular-file.txt"), "hello\n");
+      context.state.cwd = os.tmpdir();
+
+      const command: RpcCommand = {
+        id: "cmd-dir-notdir",
+        type: "list_directory_entries",
+        workspacePath: tmpDir,
+        path: "regular-file.txt",
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = sendCalls[sendCalls.length - 1][0] as string;
+      const response = JSON.parse(lastCall);
+
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toMatch(/not a directory/i);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("should handle write_workspace_file command", async () => {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "pi-web-write-file-test-"),

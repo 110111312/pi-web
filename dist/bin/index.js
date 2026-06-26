@@ -1712,6 +1712,74 @@ function listWorkspaceFilesFallback(cwd) {
 function listWorkspaceEntries(cwd) {
 	return collectWorkspaceEntries(listWorkspaceFilesWithRipgrep(cwd) ?? listWorkspaceFilesFallback(cwd));
 }
+/**
+* Read a single directory and return its immediate children. Used for
+* lazy-loading the file tree — much faster than `listWorkspaceEntries` for
+* large workspaces because it doesn't recursively scan the entire tree.
+*
+* @param workspaceRoot Absolute path to the workspace root.
+* @param relativePath Directory path relative to the workspace root (e.g. "src" or "src/components"). Defaults to root.
+* @returns Array of directory entries, or an error object.
+*/
+function listDirectoryEntries(workspaceRoot, relativePath) {
+	const normalizedRoot = normalizeOptionalWorkspaceRoot(workspaceRoot);
+	if (!normalizedRoot) return { error: "No workspace root" };
+	let resolvedRoot;
+	try {
+		resolvedRoot = fs.realpathSync.native(normalizedRoot);
+	} catch {
+		return { error: "Workspace root not found" };
+	}
+	const trimmedRelative = relativePath?.trim() ?? "";
+	if (trimmedRelative.split(/[\\/]+/).some((segment) => segment === "..")) return { error: "Path is not inside the current workspace" };
+	const absoluteDirPath = trimmedRelative ? path.join(resolvedRoot, trimmedRelative) : resolvedRoot;
+	let resolvedDir;
+	try {
+		resolvedDir = fs.realpathSync.native(absoluteDirPath);
+	} catch {
+		return { error: "Directory not found" };
+	}
+	if (!isPathInsideRoot(resolvedRoot, resolvedDir)) return { error: "Path is not inside the current workspace" };
+	let stats;
+	try {
+		stats = fs.statSync(resolvedDir);
+	} catch {
+		return { error: "Directory not found" };
+	}
+	if (!stats.isDirectory()) return { error: "Path is not a directory" };
+	let items;
+	try {
+		items = fs.readdirSync(resolvedDir, { withFileTypes: true });
+	} catch {
+		return { error: "Failed to read directory" };
+	}
+	const entries = [];
+	for (const item of items) {
+		if (item.name === ".git") continue;
+		const entryRelativePath = trimmedRelative ? `${trimmedRelative}/${item.name}` : item.name;
+		if (item.isDirectory()) {
+			let hasChildren = true;
+			try {
+				hasChildren = fs.readdirSync(path.join(resolvedDir, item.name), { withFileTypes: true }).some((sub) => sub.name !== ".git");
+			} catch {}
+			entries.push({
+				path: entryRelativePath,
+				kind: "directory",
+				hasChildren
+			});
+		} else if (item.isFile()) entries.push({
+			path: entryRelativePath,
+			kind: "file"
+		});
+	}
+	entries.sort((a, b) => {
+		if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+		const aName = a.path.includes("/") ? a.path.split("/").pop() ?? a.path : a.path;
+		const bName = b.path.includes("/") ? b.path.split("/").pop() ?? b.path : b.path;
+		return aName.localeCompare(bName, void 0, { sensitivity: "base" });
+	});
+	return entries;
+}
 const MAX_WORKSPACE_FILE_BYTES = 256 * 1024;
 function isPathInsideRoot(rootPath, candidatePath) {
 	if (candidatePath === rootPath) return true;
@@ -4414,6 +4482,31 @@ var WsRpcAdapter = class {
 					command: "list_workspace_entries",
 					success: true,
 					data: { entries: this.workspaceEntriesCache.entries }
+				};
+			}
+			case "list_directory_entries": {
+				const workspaceRoot = normalizeOptionalWorkspaceRoot(command.workspacePath) || this.sessionRuntime.currentGitCwd();
+				if (!workspaceRoot) return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: false,
+					error: "No workspace root"
+				};
+				const result = listDirectoryEntries(workspaceRoot, command.path);
+				if ("error" in result) return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: false,
+					error: result.error
+				};
+				return {
+					id: correlationId,
+					type: "response",
+					command: "list_directory_entries",
+					success: true,
+					data: { entries: result }
 				};
 			}
 			case "read_workspace_file": {

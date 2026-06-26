@@ -29,6 +29,13 @@ export interface RpcWorkspaceEntry {
   kind: "file" | "directory";
 }
 
+export interface RpcDirectoryEntry {
+  path: string;
+  kind: "file" | "directory";
+  /** For directories: whether this directory has visible children. Always true for files. */
+  hasChildren?: boolean;
+}
+
 export interface RpcWorkspaceSummary {
   id: string;
   name: string;
@@ -324,6 +331,7 @@ export interface RpcCommandMap {
   };
   list_tree_entries: { sessionPath?: string };
   list_workspace_entries: { force?: boolean; workspacePath?: string };
+  list_directory_entries: { path?: string; workspacePath?: string };
   read_workspace_file: { path: string; workspacePath?: string };
   write_workspace_file: {
     path: string;
@@ -689,6 +697,7 @@ export interface RpcResponseMap {
   };
   list_tree_entries: { entries: RpcTreeEntry[]; sessionPath?: string };
   list_workspace_entries: { entries: RpcWorkspaceEntry[] };
+  list_directory_entries: { entries: RpcDirectoryEntry[] };
   read_workspace_file: RpcWorkspaceFile;
   write_workspace_file: RpcWorkspaceWriteResult;
   list_git_branches: RpcGitRepoState;

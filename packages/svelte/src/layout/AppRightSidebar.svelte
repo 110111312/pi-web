@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RpcWorkspaceEntry } from "@pi-web/bridge/types";
+  import type { RpcDirectoryEntry } from "@pi-web/bridge/types";
   import FileBrowserPanel from "../components/FileBrowserPanel.svelte";
   import SessionTreeRail from "../components/SessionTreeRail.svelte";
   import type { TreeEntry } from "../composables/bridgeStore.svelte";
@@ -11,8 +11,8 @@
     hasTreeTab = false,
     hasFilesTab = false,
     activeTabId = "",
-    workspaceEntries = [] as readonly RpcWorkspaceEntry[],
-    workspaceEntriesLoading = false,
+    onFetchDirectory = (_: string) =>
+      Promise.resolve([] as RpcDirectoryEntry[]),
     onCloseSidebar = () => {},
     onSelectTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
@@ -25,8 +25,7 @@
     hasTreeTab?: boolean;
     hasFilesTab?: boolean;
     activeTabId?: string;
-    workspaceEntries?: readonly RpcWorkspaceEntry[];
-    workspaceEntriesLoading?: boolean;
+    onFetchDirectory?: (path: string) => Promise<RpcDirectoryEntry[]>;
     onCloseSidebar?: () => void;
     onSelectTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
@@ -96,10 +95,9 @@
           aria-labelledby="right-rail-tab-files"
         >
           <FileBrowserPanel
-            entries={workspaceEntries}
-            loading={workspaceEntriesLoading}
-            onOpenFile={onOpenFile}
-            onRefresh={onRefresh}
+            {onFetchDirectory}
+            {onOpenFile}
+            {onRefresh}
           />
         </div>
       {/if}

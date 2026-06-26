@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RpcWorkspaceFile } from "@pi-web/bridge/types";
+  import type { RpcDiffEntry, RpcWorkspaceFile } from "@pi-web/bridge/types";
   import FileViewerPanel from "./FileViewerPanel.svelte";
 
   type WriteResult = {
@@ -20,6 +20,7 @@
         bytesWritten: 0,
       } satisfies WriteResult),
     onClose = () => {},
+    diffEntry = null,
   }: {
     filePath: string;
     lineNumber: number;
@@ -29,6 +30,7 @@
       content: string,
     ) => Promise<WriteResult>;
     onClose: () => void;
+    diffEntry?: RpcDiffEntry | null;
   } = $props();
 
   let modalElement = $state<HTMLDivElement | null>(null);
@@ -91,6 +93,7 @@
       {lineNumber}
       {readWorkspaceFile}
       {writeWorkspaceFile}
+      {diffEntry}
       {onClose}
     />
   </div>

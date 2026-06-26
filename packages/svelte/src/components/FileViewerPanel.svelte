@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { RpcWorkspaceFile } from "@pi-web/bridge/types";
+  import type { RpcDiffEntry, RpcWorkspaceFile } from "@pi-web/bridge/types";
   import { onMount, tick } from "svelte";
+  import FileText from "lucide-svelte/icons/file-text";
+  import GitCompare from "lucide-svelte/icons/git-compare";
   import Pencil from "lucide-svelte/icons/pencil";
   import Save from "lucide-svelte/icons/save";
   import X from "lucide-svelte/icons/x";
@@ -24,6 +26,7 @@
         bytesWritten: 0,
       } satisfies WriteResult),
     onClose,
+    diffEntry = null,
   }: {
     filePath: string;
     lineNumber: number;
@@ -33,6 +36,7 @@
       content: string,
     ) => Promise<WriteResult>;
     onClose: () => void;
+    diffEntry?: RpcDiffEntry | null;
   } = $props();
 
   let container = $state<HTMLDivElement | null>(null);
@@ -51,6 +55,16 @@
   let isSaving = $state(false);
   let saveError = $state("");
   let pendingDiscard = $state(false); // shows unsaved-changes confirmation
+
+  // View mode toggle (only meaningful when diffEntry is provided)
+  let viewMode = $state<"diff" | "file">("file");
+
+  let activeDiffEntry = $derived(diffEntry ?? null);
+
+  $effect(() => {
+    // When diffEntry changes, default to diff view; when cleared, default to file.
+    viewMode = activeDiffEntry ? "diff" : "file";
+  });
 
   let activeLineNumber = $derived(
     Number.isInteger(lineNumber) && lineNumber > 0 ? lineNumber : 1,
@@ -246,14 +260,57 @@
   {:else}
     <header class="file-viewer-header">
       <div class="file-viewer-header-meta">
-        <span class="file-viewer-path" title={file?.path ?? filePath}>
-          {file?.path ?? filePath}
+        <span
+          class="file-viewer-path"
+          title={activeDiffEntry?.path ?? file?.path ?? filePath}
+        >
+          {activeDiffEntry?.path ?? file?.path ?? filePath}
         </span>
+        {#if activeDiffEntry}
+          <span
+            class={`status-badge status-${activeDiffEntry.status}`}
+            aria-hidden="true"
+          >
+            {activeDiffEntry.status === "added"
+              ? "A"
+              : activeDiffEntry.status === "deleted"
+                ? "D"
+                : activeDiffEntry.status === "renamed"
+                  ? "R"
+                  : "M"}
+          </span>
+        {/if}
         {#if isDirty}
           <span class="file-viewer-dirty" aria-label="Unsaved changes">●</span>
         {/if}
       </div>
-      {#if canEdit && !isEditing}
+      {#if activeDiffEntry && !isEditing}
+        <div class="file-viewer-mode-toggle">
+          <button
+            type="button"
+            class="file-viewer-mode-btn"
+            class:active={viewMode === "diff"}
+            onclick={() => (viewMode = "diff")}
+            title="View diff"
+            aria-pressed={viewMode === "diff"}
+          >
+            <GitCompare size={13} aria-hidden="true" />
+            <span>Diff</span>
+          </button>
+          <button
+            type="button"
+            class="file-viewer-mode-btn"
+            class:active={viewMode === "file"}
+            onclick={() => (viewMode = "file")}
+            title="View file"
+            aria-pressed={viewMode === "file"}
+          >
+            <FileText size={13} aria-hidden="true" />
+            <span>File</span>
+          </button>
+        </div>
+      {/if}
+      {#if canEdit && !isEditing && (!activeDiffEntry || viewMode === "file")}
         <button
           type="button"
           class="file-viewer-edit-btn"
@@ -313,7 +370,43 @@
       </div>
     {/if}
 
-    {#if isEditing}
+    {#if viewMode === "diff" && activeDiffEntry}
+      <div class="file-viewer-diff-shell">
+        {#if activeDiffEntry.hunks.length === 0}
+          <div class="file-viewer-empty">
+            No textual diff (binary file, or all changes are whitespace).
+          </div>
+        {:else}
+          <div class="file-viewer-diff">
+            {#each activeDiffEntry.hunks as hunk, hi (hi)}
+              <div class="diff-hunk-header">
+                @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
+              </div>
+              {#each hunk.lines as line, li (li)}
+                <div class={`diff-line diff-line-${line.type}`}>
+                  <span class="diff-line-old-no" aria-hidden="true">
+                    {line.oldLineNo ?? ""}
+                  </span>
+                  <span class="diff-line-new-no" aria-hidden="true">
+                    {line.newLineNo ?? ""}
+                  </span>
+                  <span class="diff-line-marker" aria-hidden="true">
+                    {line.type === "added"
+                      ? "+"
+                      : line.type === "deleted"
+                        ? "−"
+                        : " "}
+                  </span>
+                  <span class="diff-line-content"
+                    >{line.content || "\u00A0"}</span
+                  >
+                </div>
+              {/each}
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else if isEditing}
       <div class="file-viewer-editor-shell">
         <textarea
           bind:this={textarea}
@@ -414,7 +507,8 @@
 
   .file-viewer-edit-btn,
   .file-viewer-save-btn,
-  .file-viewer-cancel-btn {
+  .file-viewer-cancel-btn,
+  .file-viewer-mode-btn {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -434,9 +528,16 @@
 
   .file-viewer-edit-btn:hover,
   .file-viewer-save-btn:hover:not(:disabled),
-  .file-viewer-cancel-btn:hover:not(:disabled) {
+  .file-viewer-cancel-btn:hover:not(:disabled),
+  .file-viewer-mode-btn:hover {
     background: color-mix(in srgb, var(--surface-active) 38%, var(--panel-2));
     border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+
+  .file-viewer-mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    color: var(--text);
   }
 
   .file-viewer-save-btn:disabled,
@@ -449,6 +550,29 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .file-viewer-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--panel-2) 40%, transparent);
+  }
+
+  .file-viewer-mode-btn {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 6px;
+  }
+
+  .file-viewer-mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
   }
 
   .file-viewer-close-btn {
@@ -596,6 +720,133 @@
   .file-viewer-code :global(.code-line-target)::before {
     color: var(--accent-hover);
     background: var(--surface-active);
+  }
+
+  /* Diff view */
+  .file-viewer-diff-shell {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border-top: 1px solid var(--border);
+    background: var(--file-viewer-code-bg);
+    scrollbar-width: thin;
+  }
+
+  .file-viewer-diff {
+    min-width: max-content;
+    min-height: 100%;
+    padding-bottom: 4px;
+  }
+
+  .diff-hunk-header {
+    padding: 4px 14px;
+    font-family: var(--pi-font-mono);
+    font-size: 0.7rem;
+    color: var(--text-subtle);
+    background: color-mix(in srgb, var(--panel) 50%, transparent);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .diff-line {
+    display: grid;
+    grid-template-columns: 52px 52px 24px 1fr;
+    align-items: stretch;
+    line-height: 1.45;
+    font-family: var(--pi-font-mono);
+    font-size: 0.72rem;
+    white-space: pre;
+  }
+
+  .diff-line-added {
+    background: rgba(46, 160, 67, 0.15);
+    border-left: 3px solid rgba(46, 160, 67, 0.6);
+  }
+
+  .diff-line-deleted {
+    background: rgba(248, 81, 73, 0.15);
+    border-left: 3px solid rgba(248, 81, 73, 0.6);
+  }
+
+  .diff-line-context {
+    border-left: 3px solid transparent;
+  }
+
+  .diff-line-old-no,
+  .diff-line-new-no {
+    padding: 0 8px;
+    text-align: right;
+    color: var(--text-subtle);
+    user-select: none;
+    border-right: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+
+  .diff-line-marker {
+    text-align: center;
+    user-select: none;
+    color: var(--text-subtle);
+  }
+
+  .diff-line-content {
+    padding-right: 14px;
+    overflow: visible;
+  }
+
+  .diff-line-added .diff-line-marker {
+    color: rgba(46, 160, 67, 0.9);
+  }
+
+  .diff-line-added .diff-line-old-no,
+  .diff-line-added .diff-line-new-no {
+    color: rgba(86, 211, 100, 0.6);
+  }
+
+  .diff-line-deleted .diff-line-marker {
+    color: rgba(248, 81, 73, 0.9);
+  }
+
+  .diff-line-deleted .diff-line-old-no,
+  .diff-line-deleted .diff-line-new-no {
+    color: rgba(255, 123, 114, 0.6);
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    font-family: var(--pi-font-mono);
+    font-size: 0.66rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .status-modified {
+    background: color-mix(in srgb, #1f6feb 24%, transparent);
+    color: #79b8ff;
+    border: 1px solid color-mix(in srgb, #1f6feb 50%, transparent);
+  }
+
+  .status-added {
+    background: color-mix(in srgb, #2ea043 24%, transparent);
+    color: #56d364;
+    border: 1px solid color-mix(in srgb, #2ea043 50%, transparent);
+  }
+
+  .status-deleted {
+    background: color-mix(in srgb, #da3633 24%, transparent);
+    color: #ff7b72;
+    border: 1px solid color-mix(in srgb, #da3633 50%, transparent);
+  }
+
+  .status-renamed {
+    background: color-mix(in srgb, #8957e5 24%, transparent);
+    color: #d2a8ff;
+    border: 1px solid color-mix(in srgb, #8957e5 50%, transparent);
   }
 
   .file-viewer-confirm-backdrop {

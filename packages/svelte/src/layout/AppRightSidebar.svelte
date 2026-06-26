@@ -24,6 +24,7 @@
     onSelectTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
     onOpenFile = (_: string) => {},
+    onOpenFileDiff = (_: RpcDiffEntry) => {},
     onRefresh,
     onRefreshDiff = () => {},
   }: {
@@ -41,6 +42,7 @@
     onSelectTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
     onOpenFile?: (path: string) => void;
+    onOpenFileDiff?: (entry: RpcDiffEntry) => void;
     onRefresh?: () => void;
     onRefreshDiff?: () => void;
   } = $props();
@@ -127,7 +129,7 @@
           <GitPanel
             {diffEntries}
             {diffLoading}
-            {onOpenFile}
+            {onOpenFileDiff}
             onRefresh={onRefreshDiff}
           />
         </div>

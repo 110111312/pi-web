@@ -1,38 +1,21 @@
 <script lang="ts">
-  import type {
-    RpcDiffEntry,
-    RpcDiffFileStatus,
-    RpcDiffLine,
-  } from "@pi-web/bridge/types";
-  import ChevronDown from "lucide-svelte/icons/chevron-down";
-  import ChevronRight from "lucide-svelte/icons/chevron-right";
+  import type { RpcDiffEntry, RpcDiffFileStatus } from "@pi-web/bridge/types";
   import GitBranch from "lucide-svelte/icons/git-branch";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
 
   let {
     diffEntries = [] as readonly RpcDiffEntry[],
     diffLoading = false,
-    onOpenFile = (_: string) => {},
+    onOpenFileDiff = (_: RpcDiffEntry) => {},
     onRefresh = () => {},
   }: {
     diffEntries: readonly RpcDiffEntry[];
     diffLoading: boolean;
-    onOpenFile: (path: string) => void;
+    onOpenFileDiff: (entry: RpcDiffEntry) => void;
     onRefresh: () => void;
   } = $props();
 
-  let expandedPaths = $state<Set<string>>(new Set());
   let query = $state("");
-
-  function toggle(path: string) {
-    if (expandedPaths.has(path)) {
-      const next = new Set(expandedPaths);
-      next.delete(path);
-      expandedPaths = next;
-    } else {
-      expandedPaths = new Set([...expandedPaths, path]);
-    }
-  }
 
   function statusBadge(status: RpcDiffFileStatus): string {
     switch (status) {
@@ -107,81 +90,32 @@
     {:else}
       <ol class="diff-list">
         {#each getFilteredEntries() as entry (entry.path)}
-          {@render diffEntry(entry)}
+          <li class="diff-entry">
+            <button
+              class="diff-entry-row"
+              type="button"
+              onclick={() => onOpenFileDiff(entry)}
+              title={entry.path}
+            >
+              <span
+                class={`status-badge status-${entry.status}`}
+                aria-hidden="true"
+              >
+                {statusBadge(entry.status)}
+              </span>
+              <span class="diff-entry-path">
+                {#if entry.oldPath && entry.oldPath !== entry.path}
+                  <span class="diff-entry-rename">{entry.oldPath} → </span>
+                {/if}
+                <span class="label">{entry.path}</span>
+              </span>
+            </button>
+          </li>
         {/each}
       </ol>
     {/if}
   </div>
 </div>
-
-{#snippet diffEntry(entry: RpcDiffEntry)}
-  {@const isOpen = expandedPaths.has(entry.path)}
-  <li class="diff-entry">
-    <div class="diff-entry-header">
-      <button
-        class="diff-entry-chevron"
-        type="button"
-        onclick={() => toggle(entry.path)}
-        aria-expanded={isOpen}
-        aria-label={isOpen ? "Collapse diff" : "Expand diff"}
-      >
-        <span class="chevron" aria-hidden="true">
-          {#if isOpen}
-            <ChevronDown size={12} />
-          {:else}
-            <ChevronRight size={12} />
-          {/if}
-        </span>
-      </button>
-      <span class={`status-badge status-${entry.status}`} aria-hidden="true">
-        {statusBadge(entry.status)}
-      </span>
-      <button
-        class="diff-entry-path"
-        type="button"
-        onclick={() => onOpenFile(entry.path)}
-        title={entry.path}
-      >
-        <span class="label">{entry.path}</span>
-      </button>
-    </div>
-    {#if isOpen}
-      <div class="diff-body">
-        {#if entry.oldPath && entry.oldPath !== entry.path}
-          <div class="diff-rename-note">renamed from {entry.oldPath}</div>
-        {/if}
-        {#each entry.hunks as hunk, hi (hi)}
-          <div class="hunk">
-            <div class="hunk-header">
-              @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
-            </div>
-            {#each hunk.lines as line, li (li)}
-              {@render diffLine(line)}
-            {/each}
-          </div>
-        {/each}
-        {#if entry.hunks.length === 0}
-          <div class="diff-empty-hunk">Binary file or no textual content.</div>
-        {/if}
-      </div>
-    {/if}
-  </li>
-{/snippet}
-
-{#snippet diffLine(line: RpcDiffLine)}
-  <div class={`diff-line diff-line-${line.type}`}>
-    <span class="line-no line-no-old" aria-hidden="true">
-      {line.oldLineNo ?? ""}
-    </span>
-    <span class="line-no line-no-new" aria-hidden="true">
-      {line.newLineNo ?? ""}
-    </span>
-    <span class="line-marker" aria-hidden="true">
-      {line.type === "added" ? "+" : line.type === "deleted" ? "-" : " "}
-    </span>
-    <span class="line-content">{line.content || "\u00A0"}</span>
-  </div>
-{/snippet}
 
 <style>
   .git-rail {
@@ -286,46 +220,31 @@
   }
 
   .diff-entry {
-    margin: 0 0 6px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--panel) 60%, transparent);
-    overflow: hidden;
+    margin: 0 0 4px;
   }
 
-  .diff-entry-header {
+  .diff-entry-row {
     display: flex;
-    align-items: stretch;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
     min-height: 30px;
-  }
-
-  .diff-entry-chevron {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    flex-shrink: 0;
-    padding: 0;
-    border: none;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
     background: transparent;
-    color: var(--text-subtle);
-    cursor: pointer;
-    transition: background 0.12s ease;
-  }
-
-  .diff-entry-chevron:hover {
-    background: var(--surface-hover);
     color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease;
   }
 
-  .chevron {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 12px;
-    height: 12px;
-    color: var(--text-subtle);
-    flex-shrink: 0;
+  .diff-entry-row:hover {
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
   }
 
   .status-badge {
@@ -369,18 +288,9 @@
   .diff-entry-path {
     flex: 1;
     min-width: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    overflow: hidden;
-  }
-
-  .diff-entry-path .label {
-    display: block;
+    font-family: var(--pi-font-mono);
+    font-size: 0.7rem;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -388,101 +298,7 @@
     text-align: left;
   }
 
-  .diff-entry-path:hover .label {
-    color: var(--accent-hover);
-  }
-
-  .diff-body {
-    border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-    background: var(--bg);
-    overflow-x: auto;
-    scrollbar-width: thin;
-  }
-
-  .diff-rename-note {
-    padding: 4px 12px;
-    font-size: 0.68rem;
-    color: var(--text-subtle);
-    font-style: italic;
-    background: color-mix(in srgb, var(--panel) 40%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  }
-
-  .hunk {
-    font-family: var(--pi-font-mono);
-    font-size: 0.7rem;
-    line-height: 1.4;
-  }
-
-  .hunk-header {
-    padding: 4px 12px;
-    color: var(--text-subtle);
-    background: color-mix(in srgb, var(--panel) 50%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-    font-size: 0.66rem;
-  }
-
-  .diff-line {
-    display: grid;
-    grid-template-columns: 40px 40px 18px 1fr;
-    align-items: stretch;
-    white-space: pre;
-  }
-
-  .line-no {
-    padding: 0 6px;
-    text-align: right;
-    color: var(--text-subtle);
-    user-select: none;
-    font-size: 0.64rem;
-    border-right: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  }
-
-  .line-marker {
-    text-align: center;
-    color: var(--text-subtle);
-    user-select: none;
-  }
-
-  .line-content {
-    padding: 0 8px 0 4px;
-    overflow-x: auto;
-  }
-
-  .diff-line-context {
-    background: transparent;
-  }
-
-  .diff-line-added {
-    background: rgba(46, 160, 67, 0.15);
-  }
-
-  .diff-line-added .line-no {
-    background: rgba(46, 160, 67, 0.08);
-    color: #56d364;
-  }
-
-  .diff-line-added .line-marker {
-    color: #56d364;
-  }
-
-  .diff-line-deleted {
-    background: rgba(248, 81, 73, 0.15);
-  }
-
-  .diff-line-deleted .line-no {
-    background: rgba(248, 81, 73, 0.08);
-    color: #ff7b72;
-  }
-
-  .diff-line-deleted .line-marker {
-    color: #ff7b72;
-  }
-
-  .diff-empty-hunk {
-    padding: 8px 12px;
-    font-size: 0.7rem;
-    font-style: italic;
+  .diff-entry-rename {
     color: var(--text-subtle);
   }
 

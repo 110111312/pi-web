@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    RpcDiffEntry,
     RpcDirectoryEntry,
     RpcImageContent,
     RpcThinkingLevel,
@@ -65,6 +66,7 @@
   let modalFileOpen = $state(false);
   let modalFilePath = $state<string | null>(null);
   let modalFileLineNumber = $state(1);
+  let modalDiffEntry = $state<RpcDiffEntry | null>(null);
   let mainContentRef: AppMainContent | null = $state(null);
   let pendingRevision = $state<{
     entryId: string;
@@ -608,12 +610,21 @@
 
     modalFilePath = tp;
     modalFileLineNumber = Number.isInteger(lineNumber) && lineNumber > 0 ? lineNumber : 1;
+    modalDiffEntry = null;
+    modalFileOpen = true;
+  }
+
+  function openFileDiffViewer(entry: RpcDiffEntry) {
+    modalFilePath = entry.path;
+    modalFileLineNumber = 1;
+    modalDiffEntry = entry;
     modalFileOpen = true;
   }
 
   function closeFileViewer() {
     modalFileOpen = false;
     modalFilePath = null;
+    modalDiffEntry = null;
   }
 
   function isCompactLayout(): boolean {
@@ -1520,6 +1531,7 @@
       onSelectTab={handleRightSidebarTabSelect}
       onSelectTreeEntry={handleTreeEntrySelect}
       onOpenFile={(path: string) => openFileViewer(path, 1)}
+      onOpenFileDiff={openFileDiffViewer}
       onRefresh={handleRefreshWorkspaceEntries}
       onRefreshDiff={handleRefreshDiffEntries}
     />
@@ -1531,6 +1543,7 @@
       lineNumber={modalFileLineNumber}
       readWorkspaceFile={readDisplayedWorkspaceFile}
       writeWorkspaceFile={writeDisplayedWorkspaceFile}
+      diffEntry={modalDiffEntry}
       onClose={closeFileViewer}
     />
   {/if}

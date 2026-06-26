@@ -1455,7 +1455,7 @@
       treeEntries={displayedTreeEntries}
       sidebarOpen={outlineSidebarOpen}
       sessionPath={displayedActiveSessionPath}
-      hasTreeTab={displayedHasSessionOutline}
+      hasTreeTab={true}
       {hasFilesTab}
       activeTabId={activeRightSidebarTabId}
       workspaceEntries={displayedWorkspaceEntries}

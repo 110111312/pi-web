@@ -24,25 +24,6 @@
 
   let baseTree = $derived(buildFileTree(entries));
 
-  // Auto-expand the root level on first entries load so users see top-level
-  // directories by default.
-  let autoExpandedVersion = 0;
-  $effect(() => {
-    // Track entry count changes; whenever a fresh set of entries arrives,
-    // expand all top-level directories.
-    const version = ++autoExpandedVersion;
-    void entries.length;
-    if (version === 1) {
-      const next = new Set<string>();
-      for (const node of baseTree) {
-        if (node.kind === "directory") {
-          next.add(node.path);
-        }
-      }
-      expanded = next;
-    }
-  });
-
   let filteredTree = $derived(filterFileTree(baseTree, query));
 
   // Ensure all directories that contain a match are visible (filtered tree
@@ -315,13 +296,13 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    height: 24px;
+    height: 32px;
     padding: 0 8px 0 6px;
     border: none;
     background: transparent;
     color: var(--text);
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     line-height: 1;
     text-align: left;
     cursor: pointer;

@@ -26,6 +26,7 @@
         bytesWritten: 0,
       } satisfies WriteResult),
     editable = true,
+    onClose,
   }: {
     filePath: string;
     lineNumber: number;
@@ -36,6 +37,7 @@
       expectedMtime?: string,
     ) => Promise<WriteResult>;
     editable?: boolean;
+    onClose?: () => void;
   } = $props();
 
   let container = $state<HTMLDivElement | null>(null);
@@ -314,6 +316,17 @@
           </button>
         </div>
       {/if}
+      {#if onClose}
+        <button
+          type="button"
+          class="file-viewer-close-btn"
+          onclick={() => onClose?.()}
+          title="Close (Esc)"
+          aria-label="Close file viewer"
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      {/if}
     </header>
 
     {#if saveError}
@@ -444,14 +457,14 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    height: 26px;
+    height: 32px;
     padding: 0 10px;
     border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
     border-radius: 8px;
     background: color-mix(in srgb, var(--panel-2) 60%, transparent);
     color: var(--text);
     font: inherit;
-    font-size: 0.7rem;
+    font-size: 0.74rem;
     cursor: pointer;
     transition:
       background 0.12s ease,
@@ -476,6 +489,35 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .file-viewer-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--panel-2) 60%, transparent);
+    color: var(--text);
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
+
+  .file-viewer-close-btn:hover {
+    background: color-mix(in srgb, var(--surface-active) 38%, var(--panel-2));
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--text);
+  }
+
+  .file-viewer-close-btn:focus-visible {
+    outline: none;
+    border-color: var(--accent);
   }
 
   .file-viewer-state,

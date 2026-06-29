@@ -5,6 +5,8 @@
     RpcGitRepoState,
   } from "@pi-web/bridge/types";
   import Check from "lucide-svelte/icons/check";
+  import ChevronDown from "lucide-svelte/icons/chevron-down";
+  import ChevronRight from "lucide-svelte/icons/chevron-right";
   import GitBranchIcon from "lucide-svelte/icons/git-branch";
   import Plus from "lucide-svelte/icons/plus";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
@@ -183,6 +185,26 @@
 
   // Filtered flat entries (skipping repo headers when filtering).
   let groupedHighlightIndex = $state(0);
+
+  // Track which repo sections are expanded in grouped mode. Empty by default
+  // so the dropdown shows only repo headers; users expand the one they want.
+  let expandedRepoRoots = $state<Set<string>>(new Set());
+
+  function isRepoExpanded(root: string): boolean {
+    // While searching, auto-expand all sections so filtered branches are visible.
+    if (searchText.trim()) return true;
+    return expandedRepoRoots.has(root);
+  }
+
+  function toggleRepoExpanded(root: string): void {
+    const next = new Set(expandedRepoRoots);
+    if (next.has(root)) {
+      next.delete(root);
+    } else {
+      next.add(root);
+    }
+    expandedRepoRoots = next;
+  }
   let visibleBranchEntries = $derived.by(() => {
     if (!isGroupedMode) return [] as FlatEntry[];
     const q = searchText.trim().toLowerCase();
@@ -606,8 +628,27 @@
               onkeydown={handleSearchKeydown}
             >
               {#each groupedEntries as group (group.repo.root)}
+                {@const expanded = isRepoExpanded(group.repo.root)}
                 <li class="git-repo-group">
-                  <div class="git-repo-header">
+                  <button
+                    type="button"
+                    class="git-repo-header"
+                    aria-expanded={expanded}
+                    onclick={() => toggleRepoExpanded(group.repo.root)}
+                  >
+                    {#if expanded}
+                      <ChevronDown
+                        class="git-repo-chevron"
+                        aria-hidden="true"
+                        size={12}
+                      />
+                    {:else}
+                      <ChevronRight
+                        class="git-repo-chevron"
+                        aria-hidden="true"
+                        size={12}
+                      />
+                    {/if}
                     <span class="git-repo-label">{group.repo.label}</span>
                     <span class="git-repo-meta">
                       {#if group.loading}
@@ -620,43 +661,45 @@
                         {group.state.headLabel}
                       {/if}
                     </span>
-                  </div>
-                  {#if group.state === null && group.loading === false && Object.keys(repoStateByRoot).length > 0}
-                    <div class="git-repo-empty">No branches</div>
-                  {:else if !group.state && group.loading}
-                    <div class="git-repo-empty">Loading…</div>
-                  {:else if group.branches.length === 0}
-                    <div class="git-repo-empty">No branches</div>
-                  {:else}
-                    <ol class="git-repo-branches">
-                      {#each group.branches as branch (`${group.repo.root}:${branch.kind}:${branch.name}`)}
-                        {@const flatIdx = visibleBranchEntries.findIndex(e => e.kind === "branch" && e.branch === branch)}
-                        <li class="git-list-item">
-                          <button
-                            class="git-option"
-                            type="button"
-                            class:highlighted={flatIdx === groupedHighlightIndex}
-                            class:selected={branch.isCurrent}
-                            disabled={switching}
-                            onclick={() => handleGroupedBranchPick(group.repo, branch)}
-                            onmouseenter={() => {
-                              if (flatIdx >= 0) groupedHighlightIndex = flatIdx;
-                            }}
-                          >
-                            <span class="git-option-name">
-                              {branchDisplayName(branch)}
-                            </span>
-                            {#if branch.isCurrent}
-                              <Check
-                                class="git-option-check"
-                                aria-hidden="true"
-                                size={14}
-                              />
-                            {/if}
-                          </button>
-                        </li>
-                      {/each}
-                    </ol>
+                  </button>
+                  {#if expanded}
+                    {#if group.state === null && group.loading === false && Object.keys(repoStateByRoot).length > 0}
+                      <div class="git-repo-empty">No branches</div>
+                    {:else if !group.state && group.loading}
+                      <div class="git-repo-empty">Loading…</div>
+                    {:else if group.branches.length === 0}
+                      <div class="git-repo-empty">No branches</div>
+                    {:else}
+                      <ol class="git-repo-branches">
+                        {#each group.branches as branch (`${group.repo.root}:${branch.kind}:${branch.name}`)}
+                          {@const flatIdx = visibleBranchEntries.findIndex(e => e.kind === "branch" && e.branch === branch)}
+                          <li class="git-list-item">
+                            <button
+                              class="git-option"
+                              type="button"
+                              class:highlighted={flatIdx === groupedHighlightIndex}
+                              class:selected={branch.isCurrent}
+                              disabled={switching}
+                              onclick={() => handleGroupedBranchPick(group.repo, branch)}
+                              onmouseenter={() => {
+                                if (flatIdx >= 0) groupedHighlightIndex = flatIdx;
+                              }}
+                            >
+                              <span class="git-option-name">
+                                {branchDisplayName(branch)}
+                              </span>
+                              {#if branch.isCurrent}
+                                <Check
+                                  class="git-option-check"
+                                  aria-hidden="true"
+                                  size={14}
+                                />
+                              {/if}
+                            </button>
+                          </li>
+                        {/each}
+                      </ol>
+                    {/if}
                   {/if}
                 </li>
               {/each}
@@ -1030,10 +1073,29 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 6px;
+    width: 100%;
     padding: 4px 8px 6px;
-    margin-bottom: 4px;
+    margin: 0 0 4px;
+    border: none;
     border-bottom: 1px solid
       color-mix(in srgb, var(--border) 60%, transparent);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+
+  .git-repo-header:hover {
+    background: var(--surface-hover);
+  }
+
+  .git-repo-chevron {
+    color: var(--text-muted);
+    flex-shrink: 0;
   }
 
   .git-repo-label {

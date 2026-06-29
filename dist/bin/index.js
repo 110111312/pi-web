@@ -4844,6 +4844,13 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "switch_git_branch": {
+				if (typeof command.branchName !== "string") return {
+					id: correlationId,
+					type: "response",
+					command: "switch_git_branch",
+					success: false,
+					error: "branchName must be a string"
+				};
 				const branchName = command.branchName.trim();
 				if (!branchName) return {
 					id: correlationId,
@@ -4915,6 +4922,13 @@ var WsRpcAdapter = class {
 				};
 			}
 			case "create_git_branch": {
+				if (typeof command.branchName !== "string") return {
+					id: correlationId,
+					type: "response",
+					command: "create_git_branch",
+					success: false,
+					error: "branchName must be a string"
+				};
 				const branchName = command.branchName.trim();
 				if (!branchName) return {
 					id: correlationId,

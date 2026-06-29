@@ -8,7 +8,7 @@
     RpcWorkspaceEntry,
     RpcWorkspaceFile,
   } from "@pi-web/bridge/types";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import ExtensionDialog from "./components/ExtensionDialog.svelte";
   import ReconnectBanner from "./components/ReconnectBanner.svelte";
   import ThemeSettingsDialog from "./components/ThemeSettingsDialog.svelte";
@@ -1362,16 +1362,22 @@
   });
 
   $effect(() => {
-    // Refresh the cached git repos when the session changes so we don't
-    // keep showing repos from a different project. Skip the fetch when
-    // there's no session or no workspace path yet (avoids running git
-    // commands during early session initialization).
+    // Refresh the cached git repos when the active session or its
+    // workspace path changes. When both are known, force-fetch with the
+    // resolved workspace path so multi-repo projects (e.g. odoo +
+    // odoo/en-erp) are discovered. Bridge cache state reads are
+    // untracked so fetch state changes do not re-fire this effect
+    // (which previously caused reactive loops freezing the UI).
     const sessionPath = displayedActiveSessionPath;
     const wp = displayedWorkspacePath;
-    if (sessionPath && typeof wp === "string" && wp) {
+    if (!sessionPath) return;
+    if (!wp) return;
+    if (untrack(() => bridge.lastGitReposWorkspace) === wp) return;
+    untrack(() => {
       selectedGitRepoRoot = null;
+      bridge.invalidateGitRepos();
       void bridge.fetchGitRepos(true, wp).catch(() => {});
-    }
+    });
   });
 
   $effect(() => {

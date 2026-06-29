@@ -336,6 +336,7 @@ let _diffRepoRoot = $state<string | null>(null);
 let _gitRepos = $state<readonly RpcGitRepoEntry[]>([]);
 let _gitReposLoaded = $state(false);
 let _gitReposLoading = $state(false);
+let _lastGitReposWorkspace = $state<string | null>(null);
 let gitReposRequest:
   | Promise<{ repos: RpcGitRepoEntry[] } | null>
   | null = null;
@@ -398,6 +399,7 @@ let diffRepoRoot = $derived(_diffRepoRoot);
 let gitRepos = $derived(_gitRepos);
 let gitReposLoaded = $derived(_gitReposLoaded);
 let gitReposLoading = $derived(_gitReposLoading);
+let lastGitReposWorkspace = $derived(_lastGitReposWorkspace);
 let reconnectCount = $derived(_reconnectCount);
 let lastDisconnectReason = $derived(_lastDisconnectReason);
 let connectionError = $derived(_connectionError);
@@ -2346,6 +2348,11 @@ export async function fetchGitRepos(
   force: boolean = false,
   workspacePath?: string | null,
 ): Promise<readonly RpcGitRepoEntry[]> {
+  const wpParam =
+    typeof workspacePath === "string" && workspacePath.trim()
+      ? workspacePath.trim()
+      : null;
+  const wp = wpParam ?? getDisplayedWorkspacePath();
   if (!force && _gitReposLoaded) return _gitRepos;
   if (gitReposRequest && !force) {
     const result = await gitReposRequest;
@@ -2354,11 +2361,6 @@ export async function fetchGitRepos(
   if (_connectionStatus !== "connected") return _gitRepos;
 
   _gitReposLoading = true;
-  const wpParam =
-    typeof workspacePath === "string" && workspacePath.trim()
-      ? workspacePath.trim()
-      : null;
-  const wp = wpParam ?? getDisplayedWorkspacePath();
   gitReposRequest = sendCommand({
     type: "list_git_repos",
     ...(wp ? { workspacePath: wp } : {}),
@@ -2366,6 +2368,7 @@ export async function fetchGitRepos(
     .then(resp => {
       _gitReposLoading = false;
       _gitReposLoaded = true;
+      _lastGitReposWorkspace = wp ?? null;
       if (!resp.success) {
         return null;
       }
@@ -2393,6 +2396,7 @@ export function invalidateGitRepos() {
   _gitRepos = Object.freeze([]);
   _gitReposLoaded = false;
   _gitReposLoading = false;
+  _lastGitReposWorkspace = null;
   gitReposRequest = null;
 }
 
@@ -3240,6 +3244,9 @@ export function initBridge() {
     },
     get gitReposLoading() {
       return gitReposLoading;
+    },
+    get lastGitReposWorkspace() {
+      return lastGitReposWorkspace;
     },
     get pendingMessageCount() {
       return pendingMessageCount;

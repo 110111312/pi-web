@@ -180,7 +180,8 @@ function compareSessionsByRecency(left, right) {
 	return right.path.localeCompare(left.path);
 }
 function normalizeOptionalWorkspaceRoot(workspacePath) {
-	const trimmed = workspacePath?.trim();
+	if (typeof workspacePath !== "string") return void 0;
+	const trimmed = workspacePath.trim();
 	if (!trimmed) return void 0;
 	const normalized = path.normalize(trimmed);
 	if (normalized === path.parse(normalized).root) return normalized;
@@ -4036,4 +4037,4 @@ var WsRpcAdapter = class {
 	}
 };
 //#endregion
-export { WsRpcAdapter, listGitRepos, parseGitDiff };
+export { WsRpcAdapter, listGitRepos, normalizeOptionalWorkspaceRoot, parseGitDiff };

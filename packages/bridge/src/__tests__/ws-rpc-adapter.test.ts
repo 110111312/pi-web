@@ -21,7 +21,11 @@ import {
   type RpcWorkspaceEntry,
   type WsClient,
 } from "../types.js";
-import { WsRpcAdapter, type WsRpcAdapterContext } from "../ws-rpc-adapter.js";
+import {
+  WsRpcAdapter,
+  type WsRpcAdapterContext,
+  normalizeOptionalWorkspaceRoot,
+} from "../ws-rpc-adapter.js";
 
 // Mock WebSocket
 const createMockWebSocket = (): WebSocket => {
@@ -5505,5 +5509,27 @@ describe("WsRpcAdapter", () => {
       expect(response?.payload.success).toBe(false);
       expect(response?.payload.error).toBe("branchName must be a string");
     });
+  });
+});
+
+describe("normalizeOptionalWorkspaceRoot", () => {
+  it("returns undefined for non-string workspace paths", () => {
+    expect(normalizeOptionalWorkspaceRoot(null)).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot(undefined)).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot(42)).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot({ a: 1 })).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot(["/tmp"])).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot(true)).toBeUndefined();
+  });
+
+  it("returns undefined for empty or whitespace-only strings", () => {
+    expect(normalizeOptionalWorkspaceRoot("")).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot("   ")).toBeUndefined();
+    expect(normalizeOptionalWorkspaceRoot("\n\t  ")).toBeUndefined();
+  });
+
+  it("returns trimmed, normalized path for valid strings", () => {
+    expect(normalizeOptionalWorkspaceRoot("/tmp/foo")).toBe("/tmp/foo");
+    expect(normalizeOptionalWorkspaceRoot("  /tmp/bar  ")).toBe("/tmp/bar");
   });
 });

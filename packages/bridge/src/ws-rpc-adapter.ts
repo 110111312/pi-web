@@ -485,10 +485,11 @@ function compareSessionsByRecency(
   return right.path.localeCompare(left.path);
 }
 
-function normalizeOptionalWorkspaceRoot(
-  workspacePath?: string | null,
+export function normalizeOptionalWorkspaceRoot(
+  workspacePath?: unknown,
 ): string | undefined {
-  const trimmed = workspacePath?.trim();
+  if (typeof workspacePath !== "string") return undefined;
+  const trimmed = workspacePath.trim();
   if (!trimmed) return undefined;
 
   const normalized = path.normalize(trimmed);

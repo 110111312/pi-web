@@ -8,7 +8,7 @@
     RpcWorkspaceEntry,
     RpcWorkspaceFile,
   } from "@pi-web/bridge/types";
-  import { onMount, untrack } from "svelte";
+  import { onMount } from "svelte";
   import ExtensionDialog from "./components/ExtensionDialog.svelte";
   import ReconnectBanner from "./components/ReconnectBanner.svelte";
   import ThemeSettingsDialog from "./components/ThemeSettingsDialog.svelte";
@@ -64,6 +64,7 @@
   let outlineSidebarOpen = $state(false);
   let themeSettingsOpen = $state(false);
   let activeRightSidebarTabId = $state<RightSidebarTabId>(TREE_TAB_ID);
+  let lastFetchedGitReposFor = $state<string | null>(null);
   let selectedGitRepoRoot = $state<string | null>(null);
   let modalFileOpen = $state(false);
   let modalFilePath = $state<string | null>(null);
@@ -1365,19 +1366,20 @@
     // Refresh the cached git repos when the active session or its
     // workspace path changes. When both are known, force-fetch with the
     // resolved workspace path so multi-repo projects (e.g. odoo +
-    // odoo/en-erp) are discovered. Bridge cache state reads are
-    // untracked so fetch state changes do not re-fire this effect
-    // (which previously caused reactive loops freezing the UI).
+    // odoo/en-erp) are discovered. A local guard key prevents the effect
+    // from re-firing on every reactive update of bridge cache state.
     const sessionPath = displayedActiveSessionPath;
     const wp = displayedWorkspacePath;
-    if (!sessionPath) return;
+    if (!sessionPath) {
+      lastFetchedGitReposFor = null;
+      return;
+    }
     if (!wp) return;
-    if (untrack(() => bridge.lastGitReposWorkspace) === wp) return;
-    untrack(() => {
-      selectedGitRepoRoot = null;
-      bridge.invalidateGitRepos();
-      void bridge.fetchGitRepos(true, wp).catch(() => {});
-    });
+    const key = `${sessionPath}\u0000${wp}`;
+    if (lastFetchedGitReposFor === key) return;
+    lastFetchedGitReposFor = key;
+    selectedGitRepoRoot = null;
+    void bridge.fetchGitRepos(true, wp).catch(() => {});
   });
 
   $effect(() => {

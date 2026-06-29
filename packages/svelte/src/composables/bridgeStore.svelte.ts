@@ -336,7 +336,6 @@ let _diffRepoRoot = $state<string | null>(null);
 let _gitRepos = $state<readonly RpcGitRepoEntry[]>([]);
 let _gitReposLoaded = $state(false);
 let _gitReposLoading = $state(false);
-let _lastGitReposWorkspace = $state<string | null>(null);
 let gitReposRequest:
   | Promise<{ repos: RpcGitRepoEntry[] } | null>
   | null = null;
@@ -2368,7 +2367,6 @@ export async function fetchGitRepos(
     .then(resp => {
       _gitReposLoading = false;
       _gitReposLoaded = true;
-      _lastGitReposWorkspace = wp ?? null;
       if (!resp.success) {
         return null;
       }
@@ -2396,7 +2394,6 @@ export function invalidateGitRepos() {
   _gitRepos = Object.freeze([]);
   _gitReposLoaded = false;
   _gitReposLoading = false;
-  _lastGitReposWorkspace = null;
   gitReposRequest = null;
 }
 
@@ -3244,9 +3241,6 @@ export function initBridge() {
     },
     get gitReposLoading() {
       return gitReposLoading;
-    },
-    get lastGitReposWorkspace() {
-      return lastGitReposWorkspace;
     },
     get pendingMessageCount() {
       return pendingMessageCount;

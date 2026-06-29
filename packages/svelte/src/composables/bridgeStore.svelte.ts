@@ -2047,6 +2047,7 @@ export async function switchGitBranch(
     const resp = await sendCommand({
       type: "switch_git_branch",
       branchName,
+      ...(repoRoot ? { repoRoot } : {}),
     });
     if (!resp.success) {
       pushNotification(
@@ -2101,6 +2102,7 @@ export async function createGitBranch(
     const resp = await sendCommand({
       type: "create_git_branch",
       branchName,
+      ...(repoRoot ? { repoRoot } : {}),
     });
     if (!resp.success) {
       pushNotification(

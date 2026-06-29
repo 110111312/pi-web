@@ -377,8 +377,8 @@ export interface RpcCommandMap {
 
   /** Git */
   list_git_branches: { repoRoot?: string | null };
-  switch_git_branch: { branchName: string };
-  create_git_branch: { branchName: string };
+  switch_git_branch: { branchName: string; repoRoot?: string | null };
+  create_git_branch: { branchName: string; repoRoot?: string | null };
   list_diff_entries: { workspacePath?: string | null; repoRoot?: string | null };
   list_git_repos: { workspacePath?: string | null };
 

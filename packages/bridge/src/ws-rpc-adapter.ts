@@ -6619,7 +6619,13 @@ export class WsRpcAdapter {
           };
         }
 
-        const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+        // `repoRoot` overrides which repo to operate on. When omitted we
+        // fall back to the active session's git cwd so single-repo callers
+        // (e.g. the legacy /branch slash command) keep working.
+        const repoRoot =
+          normalizeOptionalWorkspaceRoot(command.repoRoot) ||
+          this.sessionRuntime.currentGitCwd();
+        const repoState = readGitRepoState(repoRoot);
         if (!repoState) {
           return {
             id: correlationId,
@@ -6728,7 +6734,13 @@ export class WsRpcAdapter {
           };
         }
 
-        const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+        // `repoRoot` overrides which repo to operate on. When omitted we
+        // fall back to the active session's git cwd so single-repo callers
+        // (e.g. the legacy /branch slash command) keep working.
+        const repoRoot =
+          normalizeOptionalWorkspaceRoot(command.repoRoot) ||
+          this.sessionRuntime.currentGitCwd();
+        const repoState = readGitRepoState(repoRoot);
         if (!repoState) {
           return {
             id: correlationId,

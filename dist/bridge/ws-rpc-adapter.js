@@ -3843,7 +3843,7 @@ var WsRpcAdapter = class {
 					success: false,
 					error: "Cannot switch branches while the active session is busy"
 				};
-				const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+				const repoState = readGitRepoState(normalizeOptionalWorkspaceRoot(command.repoRoot) || this.sessionRuntime.currentGitCwd());
 				if (!repoState) return {
 					id: correlationId,
 					type: "response",
@@ -3914,7 +3914,7 @@ var WsRpcAdapter = class {
 					success: false,
 					error: "Cannot create branches while the active session is busy"
 				};
-				const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+				const repoState = readGitRepoState(normalizeOptionalWorkspaceRoot(command.repoRoot) || this.sessionRuntime.currentGitCwd());
 				if (!repoState) return {
 					id: correlationId,
 					type: "response",

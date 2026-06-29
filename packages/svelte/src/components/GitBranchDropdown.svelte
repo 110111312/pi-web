@@ -396,15 +396,6 @@
     if (nextState) closeDropdown({ focusTrigger: true });
   }
 
-  function selectRepo(repo: RpcGitRepoEntry) {
-    if (selectedRepoRoot === repo.root) {
-      closeDropdown({ focusTrigger: true });
-      return;
-    }
-    onPickRepo(repo.root);
-    closeDropdown({ focusTrigger: true });
-  }
-
   async function handleGroupedBranchPick(repo: RpcGitRepoEntry, branch: RpcGitBranch) {
     if (switching) return;
     if (branch.isCurrent) {

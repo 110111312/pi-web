@@ -970,13 +970,9 @@
     void bridge.refreshDiffEntries(selectedGitRepoRoot).catch(() => {});
   }
 
-  function handleSelectGitRepo(repoRoot: string | null) {
+  function handlePickGitRepo(repoRoot: string | null) {
     selectedGitRepoRoot = repoRoot;
     void bridge.fetchDiffEntries(true, repoRoot).catch(() => {});
-  }
-
-  function handlePickGitRepo(repoRoot: string | null) {
-    handleSelectGitRepo(repoRoot);
   }
 
   async function handlePickGitBranch(

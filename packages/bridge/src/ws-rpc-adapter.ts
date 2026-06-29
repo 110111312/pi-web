@@ -6515,14 +6515,26 @@ export class WsRpcAdapter {
       }
 
       case "list_git_branches": {
-        const repoState = readGitRepoState(this.sessionRuntime.currentGitCwd());
+        const cwd =
+          normalizeOptionalWorkspaceRoot(command.repoRoot) ||
+          this.sessionRuntime.currentGitCwd();
+        if (!cwd) {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "list_git_branches" as const,
+            success: false as const,
+            error: "No working directory for the active session",
+          };
+        }
+        const repoState = readGitRepoState(cwd);
         if (!repoState) {
           return {
             id: correlationId,
             type: "response" as const,
             command: "list_git_branches" as const,
             success: false as const,
-            error: "No git repository found for the active session",
+            error: "No git repository found",
           };
         }
 

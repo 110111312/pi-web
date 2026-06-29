@@ -1,5 +1,9 @@
 <script lang="ts">
-  import type { RpcGitBranch, RpcGitRepoState } from "@pi-web/bridge/types";
+  import type {
+    RpcGitBranch,
+    RpcGitRepoEntry,
+    RpcGitRepoState,
+  } from "@pi-web/bridge/types";
   import Check from "lucide-svelte/icons/check";
   import GitBranchIcon from "lucide-svelte/icons/git-branch";
   import Plus from "lucide-svelte/icons/plus";
@@ -17,8 +21,54 @@
       Promise.resolve(null as RpcGitRepoState | null),
     createBranch = (_: string) =>
       Promise.resolve(null as RpcGitRepoState | null),
+    repos = [] as readonly RpcGitRepoEntry[],
+    reposLoading = false,
+    repoStateByRoot = {} as Readonly<Record<string, RpcGitRepoState>>,
+    repoStateLoadingByRoot = {} as Readonly<Record<string, boolean>>,
+    selectedRepoRoot = null as string | null,
+    onPickRepo = (_: string | null) => {},
+    onPickBranch = async (_: string, __: RpcGitBranch) => {},
+    onCreateBranch = async (_: string, __: string) => {},
+    refreshRepoState = async (_?: string | null, __?: boolean) =>
+      null as RpcGitRepoState | null,
   } = $props();
 
+  const isGroupedMode = $derived(repos.length > 1);
+
+  // Effective active repo for chip label when grouped.
+  let activeGroupedRepoRoot = $derived(
+    selectedRepoRoot ?? (repos[0]?.root ?? null),
+  );
+  let activeGroupedRepo = $derived(
+    activeGroupedRepoRoot
+      ? (repos.find(r => r.root === activeGroupedRepoRoot) ?? null)
+      : (repos[0] ?? null),
+  );
+  let activeGroupedRepoState = $derived.by(() => {
+    const root = activeGroupedRepo?.root;
+    if (!root) return null;
+    return repoStateByRoot[root] ?? null;
+  });
+
+  // The label shown on the trigger button.
+  let displayLabel = $derived.by(() => {
+    // Single-repo mode preserves the existing flat behavior.
+    if (!isGroupedMode) {
+      const fb = repoState?.headLabel ?? label;
+      const branch = fb?.trim();
+      return branch ? branch : null;
+    }
+    // Grouped mode: show "<repo>/<branch>" when current branch is known.
+    if (activeGroupedRepoState?.headLabel && activeGroupedRepo) {
+      const head = activeGroupedRepoState.headLabel.trim();
+      if (head) return `${activeGroupedRepo.label}/${head}`;
+    }
+    // Fallback: just show the repo label (or bare "git branch" if no repo).
+    if (activeGroupedRepo) return activeGroupedRepo.label;
+    return label ?? null;
+  });
+
+  let isBusy = $derived(loading || switching);
   let rootRef = $state<HTMLElement | null>(null);
   let triggerRef = $state<HTMLButtonElement | null>(null);
   let searchInputRef = $state<HTMLInputElement | null>(null);
@@ -27,20 +77,15 @@
   let searchText = $state("");
   let highlightedIndex = $state(0);
 
-  let displayLabel = $derived.by(() => {
-    const fb = repoState?.headLabel ?? label;
-    const branch = fb?.trim();
-    return branch ? branch : null;
-  });
-  let isBusy = $derived(loading || switching);
-  let normalizedQuery = $derived(searchText.trim());
-  let mergedBranches = $derived.by(() => {
-    if (!repoState) return [] as RpcGitBranch[];
+  // ---------- Single-repo mode derivations (unchanged from the prior component) ----------
+
+  function mergeBranchesFor(state: RpcGitRepoState | null): RpcGitBranch[] {
+    if (!state) return [];
     const byShortName = new Map<
       string,
       { local?: RpcGitBranch; remotes: RpcGitBranch[] }
     >();
-    for (const branch of repoState.branches) {
+    for (const branch of state.branches) {
       const group = byShortName.get(branch.shortName) ?? { remotes: [] };
       if (branch.kind === "local") {
         group.local = branch;
@@ -51,7 +96,7 @@
     }
     const result: RpcGitBranch[] = [];
     const seen = new Set<string>();
-    for (const branch of repoState.branches) {
+    for (const branch of state.branches) {
       const group = byShortName.get(branch.shortName);
       if (!group || seen.has(branch.shortName)) continue;
       seen.add(branch.shortName);
@@ -62,10 +107,13 @@
       }
     }
     return result;
-  });
+  }
+
+  let mergedBranches = $derived(mergeBranchesFor(repoState));
+
   let filteredBranches = $derived.by(() => {
     if (!repoState) return [] as RpcGitBranch[];
-    const query = normalizedQuery.toLowerCase();
+    const query = searchText.trim().toLowerCase();
     if (!query) return mergedBranches;
     return mergedBranches.filter(branch => {
       const display =
@@ -75,21 +123,109 @@
       return [branch.name, display].join(" ").toLowerCase().includes(query);
     });
   });
+
   let exactBranchMatch = $derived(
-    normalizedQuery
-      ? mergedBranches.find(b => b.name === normalizedQuery) ?? null
+    searchText.trim()
+      ? mergedBranches.find(b => b.name === searchText.trim()) ?? null
       : null,
   );
-  let canCreateBranch = $derived(Boolean(normalizedQuery) && !exactBranchMatch);
-  let createButtonLabel = $derived(
-    normalizedQuery ? `Create ${normalizedQuery}` : "Create branch",
+  let canCreateBranch = $derived(
+    Boolean(searchText.trim()) && !exactBranchMatch,
   );
+  let createButtonLabel = $derived(
+    searchText.trim() ? `Create ${searchText.trim()}` : "Create branch",
+  );
+
   let triggerTitle = $derived.by(() => {
     if (!displayLabel) return "Git branch";
-    if (repoState?.isDirty)
+    if (!isGroupedMode && repoState?.isDirty)
       return `${displayLabel} (working tree has uncommitted changes)`;
     return displayLabel;
   });
+
+  // ---------- Grouped-mode derivations ----------
+
+  type GroupEntry = {
+    repo: RpcGitRepoEntry;
+    state: RpcGitRepoState | null;
+    loading: boolean;
+    branches: RpcGitBranch[];
+  };
+
+  let groupedEntries = $derived.by(() => {
+    if (!isGroupedMode) return [] as GroupEntry[];
+    return repos.map(repo => {
+      const state = repoStateByRoot[repo.root] ?? null;
+      const isLoading = !!repoStateLoadingByRoot[repo.root];
+      const branches = mergeBranchesFor(state);
+      return { repo, state, loading: isLoading, branches };
+    });
+  });
+
+  // Flat list across all repos for keyboard navigation and search filter.
+  type FlatEntry = {
+    repo: RpcGitRepoEntry;
+    branch: RpcGitBranch | null; // null = repo header row
+    kind: "repo-header" | "branch";
+  };
+
+  let flatEntries = $derived.by(() => {
+    if (!isGroupedMode) return [] as FlatEntry[];
+    const out: FlatEntry[] = [];
+    for (const g of groupedEntries) {
+      out.push({ repo: g.repo, branch: null, kind: "repo-header" });
+      for (const b of g.branches) {
+        out.push({ repo: g.repo, branch: b, kind: "branch" });
+      }
+    }
+    return out;
+  });
+
+  // Filtered flat entries (skipping repo headers when filtering).
+  let groupedHighlightIndex = $state(0);
+  let visibleBranchEntries = $derived.by(() => {
+    if (!isGroupedMode) return [] as FlatEntry[];
+    const q = searchText.trim().toLowerCase();
+    if (!q) {
+      // Only branches, in repo order.
+      return flatEntries.filter(e => e.kind === "branch");
+    }
+    return flatEntries.filter(e => {
+      if (e.kind !== "branch" || !e.branch) return false;
+      const repoMatch = e.repo.label.toLowerCase().includes(q);
+      const branch = e.branch;
+      const display =
+        branch.kind === "remote" && branch.remoteName
+          ? `${branch.remoteName}/${branch.shortName}`
+          : branch.shortName;
+      const branchMatch =
+        [branch.name, display].join(" ").toLowerCase().includes(q);
+      return repoMatch || branchMatch;
+    });
+  });
+
+  let groupedExactBranchMatch = $derived.by(() => {
+    if (!isGroupedMode) return null as RpcGitBranch | null;
+    const q = searchText.trim();
+    if (!q) return null;
+    for (const g of groupedEntries) {
+      const found = g.branches.find(b => b.name === q);
+      if (found) return found;
+    }
+    return null;
+  });
+
+  let groupedCanCreateBranch = $derived(
+    Boolean(searchText.trim()) && !groupedExactBranchMatch,
+  );
+
+  let groupedCreateButtonLabel = $derived.by(() => {
+    const q = searchText.trim();
+    if (!q || !activeGroupedRepo) return "Create branch";
+    return `Create on ${activeGroupedRepo.label}: ${q}`;
+  });
+
+  // ---------- Shared helpers ----------
 
   function branchDisplayName(branch: RpcGitBranch): string {
     if (branch.kind === "remote" && branch.remoteName) {
@@ -99,20 +235,45 @@
   }
 
   function syncHighlightedIndex() {
-    if (filteredBranches.length === 0) {
+    if (isGroupedMode) {
+      if (visibleBranchEntries.length === 0) {
+        groupedHighlightIndex = 0;
+        return;
+      }
+      const q = searchText.trim();
+      const emi = visibleBranchEntries.findIndex(
+        e => e.kind === "branch" && e.branch && e.branch.name === q,
+      );
+      if (emi >= 0) {
+        groupedHighlightIndex = emi;
+        return;
+      }
+      const ci = visibleBranchEntries.findIndex(
+        e => e.kind === "branch" && e.branch?.isCurrent,
+      );
+      groupedHighlightIndex = ci >= 0 ? ci : 0;
+      return;
+    }
+    const list = filteredBranches;
+    if (list.length === 0) {
       highlightedIndex = 0;
       return;
     }
-    const emi = filteredBranches.findIndex(
-      b => b.name === normalizedQuery,
-    );
+    const emi = list.findIndex(b => b.name === searchText.trim());
     if (emi >= 0) { highlightedIndex = emi; return; }
-    const ci = filteredBranches.findIndex(b => b.isCurrent);
+    const ci = list.findIndex(b => b.isCurrent);
     highlightedIndex = ci >= 0 ? ci : 0;
   }
 
   function scrollToHighlighted() {
     queueMicrotask(() => {
+      if (isGroupedMode) {
+        const target = listRef?.children[groupedHighlightIndex] as
+          | HTMLElement
+          | undefined;
+        target?.scrollIntoView({ block: "nearest" });
+        return;
+      }
       const el = listRef?.children[highlightedIndex] as
         | HTMLElement
         | undefined;
@@ -120,22 +281,36 @@
     });
   }
 
-  async function ensureRepoState(force = false) {
-    await refresh(force);
-    syncHighlightedIndex();
-    scrollToHighlighted();
-  }
+  // Auto-load branches for every known repo the first time the dropdown opens
+  // (or when the repo list changes). Avoids blocking on selection.
+  $effect(() => {
+    if (!isGroupedMode || !isOpen) return;
+    void repos;
+    for (const repo of repos) {
+      if (!repoStateByRoot[repo.root] && !repoStateLoadingByRoot[repo.root]) {
+        // Fire-and-forget; errors are surfaced via notifications.
+        void refreshRepoState(repo.root, true).catch(() => {});
+      }
+    }
+  });
 
   async function openDropdown() {
     if (disabled || !displayLabel) return;
     isOpen = true;
     searchText = "";
     syncHighlightedIndex();
-    if (!repoState && !loading) {
-      void ensureRepoState(true);
-    } else {
-      scrollToHighlighted();
+    if (!isGroupedMode) {
+      if (!repoState && !loading) {
+        await refresh(true);
+        syncHighlightedIndex();
+        scrollToHighlighted();
+      } else {
+        scrollToHighlighted();
+      }
+      return;
     }
+    // Grouped: triggers $effect to load any missing repo states.
+    scrollToHighlighted();
   }
 
   function closeDropdown(options?: { focusTrigger?: boolean }) {
@@ -152,6 +327,12 @@
   }
 
   function updateHighlight(nextIndex: number) {
+    if (isGroupedMode) {
+      const maxIndex = visibleBranchEntries.length - 1;
+      groupedHighlightIndex = Math.min(Math.max(nextIndex, 0), maxIndex);
+      scrollToHighlighted();
+      return;
+    }
     const maxIndex = filteredBranches.length - 1;
     highlightedIndex = Math.min(Math.max(nextIndex, 0), maxIndex);
     scrollToHighlighted();
@@ -159,7 +340,18 @@
 
   async function handleRefresh(force = true) {
     if (isBusy) return;
-    await ensureRepoState(force);
+    if (isGroupedMode) {
+      // Refresh all known repos.
+      await Promise.all(
+        repos.map(r => refreshRepoState(r.root, force).catch(() => null)),
+      );
+      syncHighlightedIndex();
+      scrollToHighlighted();
+      return;
+    }
+    await refresh(force);
+    syncHighlightedIndex();
+    scrollToHighlighted();
   }
 
   async function selectBranch(branch: RpcGitBranch) {
@@ -174,8 +366,34 @@
 
   async function handleCreateBranch() {
     if (!canCreateBranch || switching) return;
-    const nextState = await createBranch(normalizedQuery);
+    const nextState = await createBranch(searchText.trim());
     if (nextState) closeDropdown({ focusTrigger: true });
+  }
+
+  function selectRepo(repo: RpcGitRepoEntry) {
+    if (selectedRepoRoot === repo.root) {
+      closeDropdown({ focusTrigger: true });
+      return;
+    }
+    onPickRepo(repo.root);
+    closeDropdown({ focusTrigger: true });
+  }
+
+  async function handleGroupedBranchPick(repo: RpcGitRepoEntry, branch: RpcGitBranch) {
+    if (switching) return;
+    if (branch.isCurrent) {
+      onPickRepo(repo.root);
+      closeDropdown({ focusTrigger: true });
+      return;
+    }
+    await onPickBranch(repo.root, branch);
+    closeDropdown({ focusTrigger: true });
+  }
+
+  async function handleGroupedCreate() {
+    if (!groupedCanCreateBranch || switching || !activeGroupedRepo) return;
+    await onCreateBranch(activeGroupedRepo.root, searchText.trim());
+    closeDropdown({ focusTrigger: true });
   }
 
   function handleTriggerKeydown(event: KeyboardEvent) {
@@ -184,12 +402,16 @@
       case "ArrowDown":
         event.preventDefault();
         if (!isOpen) { void openDropdown(); return; }
-        updateHighlight(highlightedIndex + 1);
+        updateHighlight(
+          isGroupedMode ? groupedHighlightIndex + 1 : highlightedIndex + 1,
+        );
         break;
       case "ArrowUp":
         event.preventDefault();
         if (!isOpen) { void openDropdown(); return; }
-        updateHighlight(highlightedIndex - 1);
+        updateHighlight(
+          isGroupedMode ? groupedHighlightIndex - 1 : highlightedIndex - 1,
+        );
         break;
       case "Enter":
       case " ":
@@ -204,13 +426,26 @@
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
+        if (isGroupedMode) {
+          if (visibleBranchEntries.length > 0)
+            updateHighlight(
+              (groupedHighlightIndex + 1) % visibleBranchEntries.length,
+            );
+          break;
+        }
         if (filteredBranches.length > 0)
-          updateHighlight(
-            (highlightedIndex + 1) % filteredBranches.length,
-          );
+          updateHighlight((highlightedIndex + 1) % filteredBranches.length);
         break;
       case "ArrowUp":
         event.preventDefault();
+        if (isGroupedMode) {
+          if (visibleBranchEntries.length > 0)
+            updateHighlight(
+              (groupedHighlightIndex - 1 + visibleBranchEntries.length) %
+                visibleBranchEntries.length,
+            );
+          break;
+        }
         if (filteredBranches.length > 0)
           updateHighlight(
             (highlightedIndex - 1 + filteredBranches.length) %
@@ -219,7 +454,15 @@
         break;
       case "Enter": {
         event.preventDefault();
-        if (canCreateBranch) { void handleCreateBranch(); return; }
+        if (isGroupedMode) {
+          if (groupedCanCreateBranch) { void handleGroupedCreate(); break; }
+          const entry = visibleBranchEntries[groupedHighlightIndex];
+          if (entry?.kind === "branch" && entry.branch) {
+            void handleGroupedBranchPick(entry.repo, entry.branch);
+          }
+          break;
+        }
+        if (canCreateBranch) { void handleCreateBranch(); break; }
         const branch = filteredBranches[highlightedIndex];
         if (branch) void selectBranch(branch);
         break;
@@ -240,10 +483,6 @@
     if (!rootRef?.contains(target)) closeDropdown();
   }
 
-  function tick(): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, 0));
-  }
-
   $effect(() => {
     if (typeof document === "undefined") return;
     if (isOpen) {
@@ -254,6 +493,14 @@
   });
 
   $effect(() => {
+    if (isGroupedMode) {
+      void visibleBranchEntries;
+      if (groupedHighlightIndex >= visibleBranchEntries.length) {
+        groupedHighlightIndex = Math.max(0, visibleBranchEntries.length - 1);
+      }
+      scrollToHighlighted();
+      return;
+    }
     void filteredBranches;
     if (highlightedIndex >= filteredBranches.length)
       highlightedIndex = Math.max(0, filteredBranches.length - 1);
@@ -261,8 +508,14 @@
   });
 
   $effect(() => {
-    void repoState;
     if (!isOpen) return;
+    if (isGroupedMode) {
+      void groupedEntries;
+      syncHighlightedIndex();
+      scrollToHighlighted();
+      return;
+    }
+    void repoState;
     syncHighlightedIndex();
     scrollToHighlighted();
   });
@@ -294,7 +547,9 @@
               bind:value={searchText}
               class="git-search-input"
               type="text"
-              placeholder="Find or create branch"
+              placeholder={isGroupedMode
+                ? "Find or create branch (search all repos)"
+                : "Find or create branch"}
               onkeydown={handleSearchKeydown}
             />
           </label>
@@ -307,7 +562,7 @@
           >
             <span
               class="git-refresh-icon"
-              class:spin={loading}
+              class:spin={loading || reposLoading}
             >
               <RefreshCw
                 aria-hidden="true"
@@ -317,59 +572,147 @@
           </button>
         </div>
 
-        {#if repoState && canCreateBranch}
-          <button
-            class="git-create"
-            type="button"
-            disabled={switching}
-            onclick={handleCreateBranch}
-          >
-            <Plus class="git-create-icon" aria-hidden="true" size={14} />
-            <span class="git-create-label">{createButtonLabel}</span>
-          </button>
-        {:else if repoState && exactBranchMatch}
-          <div class="git-match-note">
-            Branch already exists. Press Enter to switch.
-          </div>
-        {/if}
+        {#if isGroupedMode}
+          {#if groupedCanCreateBranch && activeGroupedRepo}
+            <button
+              class="git-create"
+              type="button"
+              disabled={switching}
+              onclick={handleGroupedCreate}
+            >
+              <Plus class="git-create-icon" aria-hidden="true" size={14} />
+              <span class="git-create-label">{groupedCreateButtonLabel}</span>
+            </button>
+          {:else if groupedExactBranchMatch}
+            <div class="git-match-note">
+              Branch already exists. Press Enter to switch.
+            </div>
+          {/if}
 
-        {#if loading && !repoState}
-          <div class="git-empty">Loading branches...</div>
-        {:else if !repoState}
-          <div class="git-empty">No git repository found.</div>
-        {:else if filteredBranches.length === 0}
-          <div class="git-empty">No matching branches</div>
-        {:else}
-          <ul
-            bind:this={listRef}
-            class="git-list"
-            role="listbox"
-            tabindex="-1"
-            onkeydown={handleSearchKeydown}
-          >
-            {#each filteredBranches as branch, index (`${branch.kind}:${branch.name}`)}
-              <li class="git-list-item">
-                <button
-                  class="git-option"
-                  type="button"
-                  class:highlighted={index === highlightedIndex}
-                  class:selected={branch.isCurrent}
-                  disabled={switching}
-                  onclick={() => selectBranch(branch)}
-                  onmouseenter={() => (highlightedIndex = index)}
-                >
-                  <span class="git-option-name">{branchDisplayName(branch)}</span>
-                  {#if branch.isCurrent}
-                    <Check
-                      class="git-option-check"
-                      aria-hidden="true"
-                      size={14}
-                    />
+          {#if visibleBranchEntries.length === 0 && Object.keys(repoStateByRoot).length === 0}
+            <div class="git-empty">Loading repositories…</div>
+          {:else if visibleBranchEntries.length === 0}
+            <div class="git-empty">No matching branches</div>
+          {:else}
+            <ul
+              bind:this={listRef}
+              class="git-list git-list-grouped"
+              role="listbox"
+              tabindex="-1"
+              onkeydown={handleSearchKeydown}
+            >
+              {#each groupedEntries as group (group.repo.root)}
+                <li class="git-repo-group">
+                  <div class="git-repo-header">
+                    <span class="git-repo-label">{group.repo.label}</span>
+                    <span class="git-repo-meta">
+                      {#if group.loading}
+                        loading
+                      {:else if group.state?.currentBranch}
+                        {group.state.currentBranch}
+                      {:else if group.state?.detached}
+                        {group.state.headLabel || "detached"}
+                      {:else if group.state?.headLabel}
+                        {group.state.headLabel}
+                      {/if}
+                    </span>
+                  </div>
+                  {#if group.state === null && group.loading === false && Object.keys(repoStateByRoot).length > 0}
+                    <div class="git-repo-empty">No branches</div>
+                  {:else if !group.state && group.loading}
+                    <div class="git-repo-empty">Loading…</div>
+                  {:else if group.branches.length === 0}
+                    <div class="git-repo-empty">No branches</div>
+                  {:else}
+                    <ol class="git-repo-branches">
+                      {#each group.branches as branch (`${group.repo.root}:${branch.kind}:${branch.name}`)}
+                        {@const flatIdx = visibleBranchEntries.findIndex(e => e.kind === "branch" && e.branch === branch)}
+                        <li class="git-list-item">
+                          <button
+                            class="git-option"
+                            type="button"
+                            class:highlighted={flatIdx === groupedHighlightIndex}
+                            class:selected={branch.isCurrent}
+                            disabled={switching}
+                            onclick={() => handleGroupedBranchPick(group.repo, branch)}
+                            onmouseenter={() => {
+                              if (flatIdx >= 0) groupedHighlightIndex = flatIdx;
+                            }}
+                          >
+                            <span class="git-option-name">
+                              {branchDisplayName(branch)}
+                            </span>
+                            {#if branch.isCurrent}
+                              <Check
+                                class="git-option-check"
+                                aria-hidden="true"
+                                size={14}
+                              />
+                            {/if}
+                          </button>
+                        </li>
+                      {/each}
+                    </ol>
                   {/if}
-                </button>
-              </li>
-            {/each}
-          </ul>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {:else}
+          {#if repoState && canCreateBranch}
+            <button
+              class="git-create"
+              type="button"
+              disabled={switching}
+              onclick={handleCreateBranch}
+            >
+              <Plus class="git-create-icon" aria-hidden="true" size={14} />
+              <span class="git-create-label">{createButtonLabel}</span>
+            </button>
+          {:else if repoState && exactBranchMatch}
+            <div class="git-match-note">
+              Branch already exists. Press Enter to switch.
+            </div>
+          {/if}
+
+          {#if loading && !repoState}
+            <div class="git-empty">Loading branches...</div>
+          {:else if !repoState}
+            <div class="git-empty">No git repository found.</div>
+          {:else if filteredBranches.length === 0}
+            <div class="git-empty">No matching branches</div>
+          {:else}
+            <ul
+              bind:this={listRef}
+              class="git-list"
+              role="listbox"
+              tabindex="-1"
+              onkeydown={handleSearchKeydown}
+            >
+              {#each filteredBranches as branch, index (`${branch.kind}:${branch.name}`)}
+                <li class="git-list-item">
+                  <button
+                    class="git-option"
+                    type="button"
+                    class:highlighted={index === highlightedIndex}
+                    class:selected={branch.isCurrent}
+                    disabled={switching}
+                    onclick={() => selectBranch(branch)}
+                    onmouseenter={() => (highlightedIndex = index)}
+                  >
+                    <span class="git-option-name">{branchDisplayName(branch)}</span>
+                    {#if branch.isCurrent}
+                      <Check
+                        class="git-option-check"
+                        aria-hidden="true"
+                        size={14}
+                      />
+                    {/if}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -433,7 +776,7 @@
     position: absolute;
     left: 0;
     bottom: calc(100% + 10px);
-    width: min(332px, calc(100vw - 48px));
+    width: min(360px, calc(100vw - 48px));
     padding: 8px;
     border: 1px solid var(--border-strong);
     border-radius: 14px;
@@ -525,7 +868,8 @@
 
   .git-create,
   .git-match-note,
-  .git-empty {
+  .git-empty,
+  .git-repo-empty {
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -662,5 +1006,57 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  /* Grouped mode */
+
+  .git-repo-group {
+    margin-bottom: 6px;
+    padding: 6px 6px 8px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--panel-2) 36%, transparent);
+  }
+
+  .git-list-grouped {
+    padding: 0;
+    overflow-y: auto;
+  }
+
+  .git-repo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--border) 60%, transparent);
+  }
+
+  .git-repo-label {
+    font-family: var(--pi-font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.01em;
+  }
+
+  .git-repo-meta {
+    font-family: var(--pi-font-mono);
+    font-size: 0.62rem;
+    color: var(--text-subtle);
+    font-style: italic;
+  }
+
+  .git-repo-branches {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .git-repo-empty {
+    padding: 6px 8px;
+    color: var(--text-subtle);
+    font-style: italic;
+    font-size: 0.66rem;
   }
 </style>

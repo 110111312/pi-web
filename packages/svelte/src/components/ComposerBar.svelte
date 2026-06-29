@@ -1,5 +1,7 @@
 <script lang="ts">
   import type {
+    RpcGitBranch,
+    RpcGitRepoEntry,
     RpcGitRepoState,
     RpcImageContent,
     RpcSlashCommand,
@@ -52,9 +54,17 @@
     gitRepoLoading = false,
     gitBranchSwitching = false,
     gitActionsDisabled = false,
-    refreshGitRepoState = (_?: boolean) => Promise.resolve(null as RpcGitRepoState | null),
-    switchGitBranch = (_: string) => Promise.resolve(null as RpcGitRepoState | null),
-    createGitBranch = (_: string) => Promise.resolve(null as RpcGitRepoState | null),
+    gitRepos = [] as readonly RpcGitRepoEntry[],
+    gitReposLoading = false,
+    gitRepoStateByRoot = {} as Readonly<Record<string, RpcGitRepoState>>,
+    gitRepoStateLoadingByRoot = {} as Readonly<Record<string, boolean>>,
+    selectedGitRepoRoot = null as string | null,
+    refreshGitRepoState = ((_?: string | null, __?: boolean) => Promise.resolve(null as RpcGitRepoState | null)) as (repoRoot?: string | null, force?: boolean) => Promise<RpcGitRepoState | null>,
+    switchGitBranch = ((_: string, __?: string | null) => Promise.resolve(null as RpcGitRepoState | null)) as (branchName: string, repoRoot?: string | null) => Promise<RpcGitRepoState | null>,
+    createGitBranch = ((_: string, __?: string | null) => Promise.resolve(null as RpcGitRepoState | null)) as (branchName: string, repoRoot?: string | null) => Promise<RpcGitRepoState | null>,
+    onPickGitRepo = ((_: string | null) => {}) as (repoRoot: string | null) => void,
+    onPickGitBranch = ((_: string, __: RpcGitBranch) => Promise.resolve()) as (repoRoot: string, branch: RpcGitBranch) => Promise<void>,
+    onCreateGitBranch = ((_: string, __: string) => Promise.resolve()) as (repoRoot: string, name: string) => Promise<void>,
   } = $props();
 
   let composerPlaceholder = $derived(
@@ -331,6 +341,15 @@
               refresh={refreshGitRepoState}
               switchBranch={switchGitBranch}
               createBranch={createGitBranch}
+              repos={gitRepos}
+              reposLoading={gitReposLoading}
+              repoStateByRoot={gitRepoStateByRoot}
+              repoStateLoadingByRoot={gitRepoStateLoadingByRoot}
+              selectedRepoRoot={selectedGitRepoRoot}
+              onPickRepo={onPickGitRepo}
+              onPickBranch={onPickGitBranch}
+              onCreateBranch={onCreateGitBranch}
+              refreshRepoState={refreshGitRepoState}
             />
           {/if}
           <ModelDropdown

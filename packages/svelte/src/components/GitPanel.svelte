@@ -1,9 +1,5 @@
 <script lang="ts">
-  import type {
-    RpcDiffEntry,
-    RpcDiffFileStatus,
-    RpcGitRepoEntry,
-  } from "@pi-web/bridge/types";
+  import type { RpcDiffEntry, RpcDiffFileStatus } from "@pi-web/bridge/types";
   import GitBranch from "lucide-svelte/icons/git-branch";
   import RefreshCw from "lucide-svelte/icons/refresh-cw";
   import ChevronDown from "lucide-svelte/icons/chevron-down";
@@ -12,21 +8,13 @@
   let {
     diffEntries = [] as readonly RpcDiffEntry[],
     diffLoading = false,
-    gitRepos = [] as readonly RpcGitRepoEntry[],
-    gitReposLoading = false,
-    selectedRepoRoot = null as string | null,
     onOpenFileDiff = (_: RpcDiffEntry) => {},
     onRefresh = () => {},
-    onSelectRepo = (_: string | null) => {},
   }: {
     diffEntries: readonly RpcDiffEntry[];
     diffLoading: boolean;
-    gitRepos: readonly RpcGitRepoEntry[];
-    gitReposLoading: boolean;
-    selectedRepoRoot: string | null;
     onOpenFileDiff: (entry: RpcDiffEntry) => void;
     onRefresh: () => void;
-    onSelectRepo: (repoRoot: string | null) => void;
   } = $props();
 
   let expandedTracked = $state(true);
@@ -47,30 +35,9 @@
         return "M";
     }
   }
-
-  let showRepoSelector = $derived(gitRepos.length >= 1);
 </script>
 
 <div class="git-rail">
-  {#if showRepoSelector}
-    <div class="git-repo-selector">
-      <label class="git-repo-label" for="git-repo-select">Repo</label>
-      <select
-        id="git-repo-select"
-        class="git-repo-select"
-        value={selectedRepoRoot ?? ""}
-        disabled={gitReposLoading}
-        onchange={(e) =>
-          onSelectRepo(
-            (e.currentTarget as HTMLSelectElement).value || null,
-          )}
-      >
-        {#each gitRepos as repo (repo.root)}
-          <option value={repo.root}>{repo.label}</option>
-        {/each}
-      </select>
-    </div>
-  {/if}
   <div class="diff-scroll">
     {#if diffLoading && diffEntries.length === 0}
       <div class="empty-state">
@@ -187,39 +154,6 @@
         color-mix(in srgb, var(--rail-bg) 90%, var(--panel) 10%)
       ),
       var(--rail-bg);
-  }
-
-  .git-repo-selector {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 3px 0;
-  }
-
-  .git-repo-label {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .git-repo-select {
-    flex: 1;
-    min-width: 0;
-    height: 28px;
-    padding: 0 8px;
-    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--panel-2) 60%, transparent);
-    color: var(--text);
-    font: inherit;
-    font-size: 0.74rem;
-    cursor: pointer;
-  }
-
-  .git-repo-select:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 
   .refresh-btn {

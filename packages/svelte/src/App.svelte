@@ -2,6 +2,7 @@
   import type {
     RpcDiffEntry,
     RpcDirectoryEntry,
+    RpcGitBranch,
     RpcImageContent,
     RpcThinkingLevel,
     RpcWorkspaceEntry,
@@ -953,6 +954,36 @@
     void bridge.fetchDiffEntries(true, repoRoot).catch(() => {});
   }
 
+  function handlePickGitRepo(repoRoot: string | null) {
+    handleSelectGitRepo(repoRoot);
+  }
+
+  async function handlePickGitBranch(
+    repoRoot: string,
+    branch: RpcGitBranch,
+  ): Promise<void> {
+    selectedGitRepoRoot = repoRoot;
+    await bridge.switchGitBranch(branch.shortName, repoRoot).catch(() => {});
+    // Refresh diff for the now-active repo so the right-sidebar Git tab
+    // reflects the new branch.
+    void bridge.fetchDiffEntries(true, repoRoot).catch(() => {});
+  }
+
+  async function handleCreateGitBranch(
+    repoRoot: string,
+    name: string,
+  ): Promise<void> {
+    selectedGitRepoRoot = repoRoot;
+    await bridge.createGitBranch(name, repoRoot).catch(() => {});
+    void bridge.fetchDiffEntries(true, repoRoot).catch(() => {});
+  }
+
+  async function handleRefreshGitRepoState(
+    repoRoot: string | null,
+  ): Promise<RpcGitRepoState | null> {
+    return bridge.loadGitRepoState(repoRoot, false);
+  }
+
   function fetchDirectoryEntries(path: string): Promise<RpcDirectoryEntry[]> {
     return bridge.fetchDirectoryEntries(path);
   }
@@ -1499,9 +1530,17 @@
         gitRepoState={bridge.gitRepoState}
         gitRepoLoading={bridge.gitRepoLoading}
         gitBranchSwitching={bridge.gitBranchSwitching}
+        gitRepos={bridge.gitRepos}
+        gitReposLoading={bridge.gitReposLoading}
+        gitRepoStateByRoot={bridge.gitRepoStateByRoot}
+        gitRepoStateLoadingByRoot={bridge.gitRepoStateLoadingByRoot}
+        selectedGitRepoRoot={selectedGitRepoRoot}
         refreshGitRepoState={bridge.loadGitRepoState}
         switchGitBranch={bridge.switchGitBranch}
         createGitBranch={bridge.createGitBranch}
+        onPickGitRepo={handlePickGitRepo}
+        onPickGitBranch={handlePickGitBranch}
+        onCreateGitBranch={handleCreateGitBranch}
         prefillText={bridge.prefillText}
         {pendingRevision}
         allowRevision={!activeDebugSessionPath && bridge.connectionStatus === "connected"}
@@ -1552,9 +1591,6 @@
       onFetchDirectory={fetchDirectoryEntries}
       diffEntries={bridge.diffEntries}
       diffLoading={bridge.diffLoading}
-      gitRepos={bridge.gitRepos}
-      gitReposLoading={bridge.gitReposLoading}
-      selectedRepoRoot={selectedGitRepoRoot}
       onCloseSidebar={() => (outlineSidebarOpen = false)}
       onSelectTab={handleRightSidebarTabSelect}
       onSelectTreeEntry={handleTreeEntrySelect}
@@ -1562,7 +1598,6 @@
       onOpenFileDiff={openFileDiffViewer}
       onRefresh={handleRefreshWorkspaceEntries}
       onRefreshDiff={handleRefreshDiffEntries}
-      onSelectRepo={handleSelectGitRepo}
     />
   {/if}
 

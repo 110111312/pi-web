@@ -317,6 +317,14 @@ let _sessionStats = $state<RpcSessionStats | null>(null);
 let _gitRepoState = $state<RpcGitRepoState | null>(null);
 let _gitRepoLoading = $state(false);
 let _gitBranchSwitching = $state(false);
+// Per-repo git state (branch, branches, head label) keyed by repo root.
+const _gitRepoStateByRoot: Map<string, RpcGitRepoState> = new Map();
+const _gitRepoStateInFlightByRoot: Map<string, Promise<RpcGitRepoState | null>> = new Map();
+const _gitRepoStateLoadingByRoot: Map<string, boolean> = new Map();
+// Exposes a reactive (frozen) snapshot of the per-repo map so consumers can
+// derive groups in the composer-bar dropdown.
+let _gitRepoStateByRootSnapshot = $state<Readonly<Record<string, RpcGitRepoState>>>({});
+let _gitRepoStateLoadingByRootSnapshot = $state<Readonly<Record<string, boolean>>>({});
 let _diffEntries = $state<readonly RpcDiffEntry[]>([]);
 let _diffLoaded = $state(false);
 let _diffLoading = $state(false);
@@ -380,6 +388,8 @@ let sessionStats = $derived(_sessionStats);
 let gitRepoState = $derived(_gitRepoState);
 let gitRepoLoading = $derived(_gitRepoLoading);
 let gitBranchSwitching = $derived(_gitBranchSwitching);
+let gitRepoStateByRoot = $derived(_gitRepoStateByRootSnapshot);
+let gitRepoStateLoadingByRoot = $derived(_gitRepoStateLoadingByRootSnapshot);
 let diffEntries = $derived(_diffEntries);
 let diffLoaded = $derived(_diffLoaded);
 let diffLoading = $derived(_diffLoading);
@@ -645,6 +655,43 @@ function resetGitRepoState() {
   _gitRepoLoading = false;
   _gitBranchSwitching = false;
   gitRepoStateRequest = null;
+  _gitRepoStateByRoot.clear();
+  _gitRepoStateInFlightByRoot.clear();
+  _gitRepoStateByRootSnapshot = Object.freeze({});
+  _gitRepoStateLoadingByRootSnapshot = Object.freeze({});
+  // The git-repos list and per-repo diff entry caches are scoped to the
+  // workspace path; drop them so the new session rebuilds them on demand.
+  _gitRepos = Object.freeze([]);
+  _gitReposLoaded = false;
+  _gitReposLoading = false;
+  gitReposRequest = null;
+  _diffLoaded = false;
+  _diffLoading = false;
+  _diffRepoRoot = null;
+  diffEntriesRequest = null;
+}
+
+function snapshotGitRepoStateByRootMap(): void {
+  // Convert the mutable Map to a plain frozen object so Svelte 5 picks
+  // up changes (Svelte's reactivity tracks object identity, not Map mutations).
+  const next: Record<string, RpcGitRepoState> = {};
+  for (const [k, v] of _gitRepoStateByRoot) next[k] = v;
+  _gitRepoStateByRootSnapshot = Object.freeze(next);
+}
+
+function snapshotGitRepoStateLoadingByRootMap(): void {
+  const next: Record<string, boolean> = {};
+  for (const [k, v] of _gitRepoStateLoadingByRoot) next[k] = v;
+  _gitRepoStateLoadingByRootSnapshot = Object.freeze(next);
+}
+
+function setGitRepoStateLoading(repoRoot: string, loading: boolean): void {
+  if (loading) {
+    _gitRepoStateLoadingByRoot.set(repoRoot, true);
+  } else {
+    _gitRepoStateLoadingByRoot.delete(repoRoot);
+  }
+  snapshotGitRepoStateLoadingByRootMap();
 }
 
 function workspaceDisplayName(workspacePath: string): string {
@@ -1856,14 +1903,73 @@ export async function writeWorkspaceFile(
 }
 
 export async function loadGitRepoState(
+  repoRoot?: string | null,
   force: boolean = false,
 ): Promise<RpcGitRepoState | null> {
-  if (_gitRepoState && !force) return _gitRepoState;
-  if (gitRepoStateRequest && !force) return gitRepoStateRequest;
-  if (_connectionStatus !== "connected") return _gitRepoState;
+  const normalizedRepoRoot = repoRoot ?? null;
 
-  _gitRepoLoading = true;
-  gitRepoStateRequest = sendCommand({ type: "list_git_branches" })
+  // Backward-compat: when repoRoot is omitted we fall back to the original
+  // single-repo behavior so existing consumers (composer-bar branch dropdown)
+  // keep working without changes.
+  if (normalizedRepoRoot == null) {
+    if (_gitRepoState && !force) return _gitRepoState;
+    if (gitRepoStateRequest && !force) return gitRepoStateRequest;
+    if (_connectionStatus !== "connected") return _gitRepoState;
+
+    _gitRepoLoading = true;
+    gitRepoStateRequest = sendCommand({ type: "list_git_branches" })
+      .then(resp => {
+        if (!resp.success) {
+          pushNotification(
+            summarizeErrorMessage(
+              resp.error ?? "Failed to load git branches",
+              "Failed to load git branches",
+            ),
+            "error",
+          );
+          return _gitRepoState;
+        }
+        const state = normalizeGitRepoState(resp.data);
+        _gitRepoState = state;
+        if (state) {
+          _gitRepoStateByRoot.set(state.repoRoot, state);
+          snapshotGitRepoStateByRootMap();
+        }
+        if (!state) pushNotification("Failed to parse git branch data", "error");
+        return state;
+      })
+      .catch(error => {
+        pushNotification(
+          summarizeErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to load git branches",
+            "Failed to load git branches",
+          ),
+          "error",
+        );
+        return _gitRepoState;
+      })
+      .finally(() => {
+        _gitRepoLoading = false;
+        gitRepoStateRequest = null;
+      });
+
+    return gitRepoStateRequest;
+  }
+
+  // Per-repo path. Use an in-flight dedupe map so concurrent calls for the
+  // same root share a single request.
+  const cached = _gitRepoStateByRoot.get(normalizedRepoRoot);
+  if (cached && !force) return cached;
+  const inFlight = _gitRepoStateInFlightByRoot.get(normalizedRepoRoot);
+  if (inFlight && !force) return inFlight;
+  if (_connectionStatus !== "connected") return cached ?? null;
+
+  const req = sendCommand({
+    type: "list_git_branches",
+    repoRoot: normalizedRepoRoot,
+  })
     .then(resp => {
       if (!resp.success) {
         pushNotification(
@@ -1873,11 +1979,22 @@ export async function loadGitRepoState(
           ),
           "error",
         );
-        return _gitRepoState;
+        setGitRepoStateLoading(normalizedRepoRoot, false);
+        return cached ?? null;
       }
       const state = normalizeGitRepoState(resp.data);
-      _gitRepoState = state;
-      if (!state) pushNotification("Failed to parse git branch data", "error");
+      if (!state) {
+        pushNotification("Failed to parse git branch data", "error");
+        setGitRepoStateLoading(normalizedRepoRoot, false);
+        return cached ?? null;
+      }
+      _gitRepoStateByRoot.set(state.repoRoot, state);
+      snapshotGitRepoStateByRootMap();
+      // If this is the primary (no-arg) repo's state, mirror it to the legacy field.
+      if (normalizedRepoRoot === getDisplayedWorkspacePath()) {
+        _gitRepoState = state;
+      }
+      setGitRepoStateLoading(normalizedRepoRoot, false);
       return state;
     })
     .catch(error => {
@@ -1890,20 +2007,26 @@ export async function loadGitRepoState(
         ),
         "error",
       );
-      return _gitRepoState;
+      setGitRepoStateLoading(normalizedRepoRoot, false);
+      return cached ?? null;
     })
     .finally(() => {
-      _gitRepoLoading = false;
-      gitRepoStateRequest = null;
+      _gitRepoStateInFlightByRoot.delete(normalizedRepoRoot);
+      setGitRepoStateLoading(normalizedRepoRoot, false);
     });
-
-  return gitRepoStateRequest;
+  _gitRepoStateInFlightByRoot.set(normalizedRepoRoot, req);
+  setGitRepoStateLoading(normalizedRepoRoot, true);
+  return req;
 }
 
 function applyGitRepoMutation(state: RpcGitRepoState | null) {
   _gitRepoState = state;
-  if (state && _sessionState) {
-    _sessionState = { ..._sessionState, gitBranch: state.headLabel };
+  if (state) {
+    _gitRepoStateByRoot.set(state.repoRoot, state);
+    snapshotGitRepoStateByRootMap();
+    if (_sessionState) {
+      _sessionState = { ..._sessionState, gitBranch: state.headLabel };
+    }
   }
   invalidateWorkspaceEntries();
   void fetchWorkspaceEntries(true).catch(() => {});
@@ -1915,12 +2038,16 @@ function applyGitRepoMutation(state: RpcGitRepoState | null) {
 
 export async function switchGitBranch(
   branchName: string,
+  repoRoot?: string | null,
 ): Promise<RpcGitRepoState | null> {
   if (!branchName.trim() || _connectionStatus !== "connected") return null;
   _gitBranchSwitching = true;
 
   try {
-    const resp = await sendCommand({ type: "switch_git_branch", branchName });
+    const resp = await sendCommand({
+      type: "switch_git_branch",
+      branchName,
+    });
     if (!resp.success) {
       pushNotification(
         summarizeErrorMessage(
@@ -1936,7 +2063,18 @@ export async function switchGitBranch(
       pushNotification("Failed to parse git branch data", "error");
       return null;
     }
+    // `switch_git_branch` only mutates the active session cwd; treat that as
+    // the "primary" repo's state for backward compatibility with the existing
+    // single-repo UI surfaces.
     applyGitRepoMutation(state);
+    // If the caller passed an explicit `repoRoot` and it matches the state,
+    // ensure the state is also reflected in the per-repo map (this is the
+    // case when the active cwd IS the selected nested repo).
+    if (repoRoot != null && state.repoRoot === repoRoot) {
+      _gitRepoStateByRoot.set(state.repoRoot, state);
+      snapshotGitRepoStateByRootMap();
+    }
+    void repoRoot;
     return state;
   } catch (error) {
     pushNotification(
@@ -1954,12 +2092,16 @@ export async function switchGitBranch(
 
 export async function createGitBranch(
   branchName: string,
+  repoRoot?: string | null,
 ): Promise<RpcGitRepoState | null> {
   if (!branchName.trim() || _connectionStatus !== "connected") return null;
   _gitBranchSwitching = true;
 
   try {
-    const resp = await sendCommand({ type: "create_git_branch", branchName });
+    const resp = await sendCommand({
+      type: "create_git_branch",
+      branchName,
+    });
     if (!resp.success) {
       pushNotification(
         summarizeErrorMessage(
@@ -1976,6 +2118,11 @@ export async function createGitBranch(
       return null;
     }
     applyGitRepoMutation(state);
+    if (repoRoot != null && state.repoRoot === repoRoot) {
+      _gitRepoStateByRoot.set(state.repoRoot, state);
+      snapshotGitRepoStateByRootMap();
+    }
+    void repoRoot;
     return state;
   } catch (error) {
     pushNotification(
@@ -3029,6 +3176,12 @@ export function initBridge() {
     },
     get gitBranchSwitching() {
       return gitBranchSwitching;
+    },
+    get gitRepoStateByRoot() {
+      return gitRepoStateByRoot;
+    },
+    get gitRepoStateLoadingByRoot() {
+      return gitRepoStateLoadingByRoot;
     },
     get diffEntries() {
       return diffEntries;

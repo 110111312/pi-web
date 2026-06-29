@@ -2,7 +2,6 @@
   import type {
     RpcDirectoryEntry,
     RpcDiffEntry,
-    RpcGitRepoEntry,
   } from "@pi-web/bridge/types";
   import FileBrowserPanel from "../components/FileBrowserPanel.svelte";
   import GitPanel from "../components/GitPanel.svelte";
@@ -21,9 +20,6 @@
       Promise.resolve([] as RpcDirectoryEntry[]),
     diffEntries = [] as readonly RpcDiffEntry[],
     diffLoading = false,
-    gitRepos = [] as readonly RpcGitRepoEntry[],
-    gitReposLoading = false,
-    selectedRepoRoot = null as string | null,
     onCloseSidebar = () => {},
     onSelectTab = (_: string) => {},
     onSelectTreeEntry = (_: string) => {},
@@ -31,7 +27,6 @@
     onOpenFileDiff = (_: RpcDiffEntry) => {},
     onRefresh,
     onRefreshDiff = () => {},
-    onSelectRepo = (_: string | null) => {},
   }: {
     treeEntries?: readonly TreeEntry[];
     sidebarOpen?: boolean;
@@ -43,9 +38,6 @@
     onFetchDirectory?: (path: string) => Promise<RpcDirectoryEntry[]>;
     diffEntries?: readonly RpcDiffEntry[];
     diffLoading?: boolean;
-    gitRepos?: readonly RpcGitRepoEntry[];
-    gitReposLoading?: boolean;
-    selectedRepoRoot?: string | null;
     onCloseSidebar?: () => void;
     onSelectTab?: (tabId: string) => void;
     onSelectTreeEntry?: (entryId: string) => void;
@@ -53,7 +45,6 @@
     onOpenFileDiff?: (entry: RpcDiffEntry) => void;
     onRefresh?: () => void;
     onRefreshDiff?: () => void;
-    onSelectRepo?: (repoRoot: string | null) => void;
   } = $props();
 
   let tabs = $derived([
@@ -138,11 +129,7 @@
           <GitPanel
             {diffEntries}
             {diffLoading}
-            {gitRepos}
-            {gitReposLoading}
-            {selectedRepoRoot}
             {onOpenFileDiff}
-            {onSelectRepo}
             onRefresh={onRefreshDiff}
           />
         </div>

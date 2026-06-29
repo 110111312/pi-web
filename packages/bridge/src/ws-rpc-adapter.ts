@@ -1738,7 +1738,8 @@ export function findGitRepoRoot(cwd: string): string | null {
   if (typeof cwd !== "string" || !cwd) return null;
   let dir = path.resolve(cwd);
   const root = path.parse(dir).root;
-  while (true) {
+  // Safety bound — path.dirname eventually reaches the root parse root.
+  for (let depth = 0; depth < 64; depth++) {
     try {
       fs.accessSync(path.join(dir, ".git"));
       return dir;

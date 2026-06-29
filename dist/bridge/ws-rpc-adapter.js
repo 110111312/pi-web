@@ -937,7 +937,7 @@ function findGitRepoRoot(cwd) {
 	if (typeof cwd !== "string" || !cwd) return null;
 	let dir = path.resolve(cwd);
 	const root = path.parse(dir).root;
-	while (true) {
+	for (let depth = 0; depth < 64; depth++) {
 		try {
 			fs.accessSync(path.join(dir, ".git"));
 			return dir;

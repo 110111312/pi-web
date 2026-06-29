@@ -1362,13 +1362,15 @@
   });
 
   $effect(() => {
-    // Reset the selected repo and invalidate cached repos when the session
-    // changes so we don't keep pointing at a path from a different project.
+    // Refresh the cached git repos when the session changes so we don't
+    // keep showing repos from a different project. Skip the fetch when
+    // there's no session or no workspace path yet (avoids running git
+    // commands during early session initialization).
     const sessionPath = displayedActiveSessionPath;
-    selectedGitRepoRoot = null;
-    bridge.invalidateGitRepos();
-    if (sessionPath) {
-      void bridge.fetchGitRepos(false, displayedWorkspacePath).catch(() => {});
+    const wp = displayedWorkspacePath;
+    if (sessionPath && typeof wp === "string" && wp) {
+      selectedGitRepoRoot = null;
+      void bridge.fetchGitRepos(true, wp).catch(() => {});
     }
   });
 

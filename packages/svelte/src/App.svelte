@@ -1357,10 +1357,14 @@
   });
 
   $effect(() => {
-    // Reset the selected repo when the session changes so we don't keep
-    // pointing at a path that no longer belongs to the active workspace.
-    void displayedActiveSessionPath;
+    // Reset the selected repo and invalidate cached repos when the session
+    // changes so we don't keep pointing at a path from a different project.
+    const sessionPath = displayedActiveSessionPath;
     selectedGitRepoRoot = null;
+    bridge.invalidateGitRepos();
+    if (sessionPath) {
+      void bridge.fetchGitRepos().catch(() => {});
+    }
   });
 
   $effect(() => {

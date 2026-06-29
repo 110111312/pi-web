@@ -233,8 +233,8 @@
     activeTheme.mode === "dark" ? "light" : "dark",
   );
 
-  function getWorkspaceDisplayName(workspacePath?: string | null): string | null {
-    const np = workspacePath?.trim();
+  function getWorkspaceDisplayName(workspacePath?: unknown): string | null {
+    const np = typeof workspacePath === "string" ? workspacePath.trim() : null;
     if (!np) return null;
     const parts = np.split(/[\\/]/).filter(Boolean);
     return parts.at(-1) ?? np;
@@ -323,7 +323,10 @@
   async function ensureDisplayedWorkspaceEntries(
     force: boolean = false,
   ): Promise<RpcWorkspaceEntry[]> {
-    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    const workspacePath =
+      typeof activeDebugSession?.backingWorkspacePath === "string"
+        ? activeDebugSession.backingWorkspacePath.trim()
+        : "";
     if (!activeDebugSession) {
       return bridge.fetchWorkspaceEntries(force);
     }
@@ -359,7 +362,10 @@
   }
 
   async function readDisplayedWorkspaceFile(path: string): Promise<RpcWorkspaceFile> {
-    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    const workspacePath =
+      typeof activeDebugSession?.backingWorkspacePath === "string"
+        ? activeDebugSession.backingWorkspacePath.trim()
+        : "";
     if (!activeDebugSession) {
       return bridge.readWorkspaceFile(path);
     }
@@ -388,7 +394,10 @@
     path: string,
     content: string,
   ): Promise<WriteWorkspaceFileResult> {
-    const workspacePath = activeDebugSession?.backingWorkspacePath?.trim();
+    const workspacePath =
+      typeof activeDebugSession?.backingWorkspacePath === "string"
+        ? activeDebugSession.backingWorkspacePath.trim()
+        : "";
     if (!activeDebugSession) {
       return bridge.writeWorkspaceFile(path, content);
     }
@@ -1190,7 +1199,10 @@
   }
 
   function resolveDesktopMenuWorkspacePath(): string | null {
-    const currentWorkspacePath = displayedSessionState?.workspacePath?.trim();
+    const currentWorkspacePath =
+      typeof displayedSessionState?.workspacePath === "string"
+        ? displayedSessionState.workspacePath.trim()
+        : "";
     if (currentWorkspacePath) {
       return currentWorkspacePath;
     }

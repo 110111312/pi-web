@@ -67,6 +67,9 @@
     onCreateGitBranch = ((_: string, __: string) => Promise.resolve()) as (repoRoot: string, name: string) => Promise<void>,
   } = $props();
 
+  const refreshGitRepoStateForSingleRepo = (force?: boolean) =>
+    refreshGitRepoState(undefined, force);
+
   let composerPlaceholder = $derived(
     isDebugMode && isDebugSession
       ? "Use /fixture, /tps, /json, or type synthetic markdown"
@@ -338,7 +341,7 @@
               loading={gitRepoLoading}
               switching={gitBranchSwitching}
               disabled={gitActionsDisabled}
-              refresh={refreshGitRepoState}
+              refresh={refreshGitRepoStateForSingleRepo}
               switchBranch={switchGitBranch}
               createBranch={createGitBranch}
               repos={gitRepos}

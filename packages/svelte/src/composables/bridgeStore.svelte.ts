@@ -1926,10 +1926,20 @@ export async function writeWorkspaceFile(
 }
 
 export async function loadGitRepoState(
-  repoRoot?: string | null,
+  repoRoot?: string | null | boolean,
   force: boolean = false,
 ): Promise<RpcGitRepoState | null> {
-  const normalizedRepoRoot = repoRoot ?? null;
+  // Defensive: some legacy callers pass a boolean as the first arg (treating
+  // it as `force`). Detect that and rewrite to keep the new repoRoot+force
+  // contract safe.
+  let effectiveRepoRoot: string | null;
+  if (typeof repoRoot === "boolean" || repoRoot == null) {
+    effectiveRepoRoot = null;
+    if (typeof repoRoot === "boolean") force = repoRoot;
+  } else {
+    effectiveRepoRoot = repoRoot;
+  }
+  const normalizedRepoRoot = effectiveRepoRoot;
 
   // Backward-compat: when repoRoot is omitted we fall back to the original
   // single-repo behavior so existing consumers (composer-bar branch dropdown)

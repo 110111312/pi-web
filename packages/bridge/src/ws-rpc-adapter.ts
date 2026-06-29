@@ -1753,6 +1753,34 @@ export function findGitRepoRoot(cwd: string): string | null {
   return null;
 }
 
+/**
+ * Walk up `cwd` through every `.git` boundary and return the outermost
+ * ancestor that is still a git repo. Unlike `findGitRepoRoot` (which
+ * returns the innermost), this is used for repo discovery so that nested
+ * repos like `odoo/en-erp` show up even when the session cwd is deep
+ * inside the inner repo. Returns `null` if no `.git` is found.
+ */
+export function findOutermostGitRoot(cwd: string): string | null {
+  if (typeof cwd !== "string" || !cwd) return null;
+  let dir = path.resolve(cwd);
+  const root = path.parse(dir).root;
+  let outermost: string | null = null;
+  for (let depth = 0; depth < 64; depth++) {
+    let foundHere = false;
+    try {
+      fs.accessSync(path.join(dir, ".git"));
+      foundHere = true;
+    } catch {
+      /* not a repo boundary */
+    }
+    if (foundHere) outermost = dir;
+    const parent = path.dirname(dir);
+    if (parent === dir || parent === root) break;
+    dir = parent;
+  }
+  return outermost;
+}
+
 /** Directories we never scan for nested git repos. */
 const SKIPPED_REPO_SCAN_DIRS = new Set([
   "node_modules",
@@ -1783,6 +1811,13 @@ export function listGitRepos(cwd: string): RpcGitRepoEntry[] {
   const repos: RpcGitRepoEntry[] = [];
   const seen = new Set<string>();
 
+  // Walk up through ALL `.git` boundaries until we find the outermost
+  // ancestor that is still a repo (e.g. if cwd is inside
+  // `odoo/en-erp/custom_module`, the outermost is `odoo`). This is the
+  // scope from which we discover nested repos for the picker UI.
+  const outermost = findOutermostGitRoot(cwd);
+  const scanRoot = outermost ?? cwd;
+
   function tryAdd(dirPath: string): void {
     // Cheap filesystem check: skip dirs that clearly aren't git repos.
     try {
@@ -1799,31 +1834,35 @@ export function listGitRepos(cwd: string): RpcGitRepoEntry[] {
     });
   }
 
-  // Always include the workspace/session cwd itself.
-  tryAdd(cwd);
+  // Always include the outermost repo root first.
+  tryAdd(scanRoot);
 
-  // Scan direct children and grandchildren for nested repos (depth 1 and 2).
+  // BFS scan up to depth 4 from the outermost root, skipping noisy /
+  // vendored directories. This catches both siblings (depth 1) and deeper
+  // nested repos like `odoo/en-erp` or `proj/sub/repo`.
+  const MAX_SCAN_DEPTH = 4;
   try {
-    const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
-    for (const entry of topEntries) {
-      if (!entry.isDirectory()) continue;
-      if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
-      if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-
-      const childPath = path.join(cwd, entry.name);
-      tryAdd(childPath);
-
-      // Depth 2: scan grandchildren.
+    const queue: Array<{ dir: string; depth: number }> = [
+      { dir: scanRoot, depth: 0 },
+    ];
+    while (queue.length > 0) {
+      const { dir, depth } = queue.shift()!;
+      if (depth >= MAX_SCAN_DEPTH) continue;
+      let entries: fs.Dirent[];
       try {
-        const grandEntries = fs.readdirSync(childPath, { withFileTypes: true });
-        for (const grand of grandEntries) {
-          if (!grand.isDirectory()) continue;
-          if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
-          if (grand.name.startsWith(".") && grand.name !== ".git") continue;
-          tryAdd(path.join(childPath, grand.name));
-        }
+        entries = fs.readdirSync(dir, { withFileTypes: true });
       } catch {
-        /* unreadable subdir, skip */
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
+        // Skip dot-dirs except `.git`. The `.git` marker is filtered by
+        // `tryAdd` itself so we don't need to recurse into it.
+        if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+        const childPath = path.join(dir, entry.name);
+        tryAdd(childPath);
+        queue.push({ dir: childPath, depth: depth + 1 });
       }
     }
   } catch {

@@ -948,6 +948,31 @@ function findGitRepoRoot(cwd) {
 	}
 	return null;
 }
+/**
+* Walk up `cwd` through every `.git` boundary and return the outermost
+* ancestor that is still a git repo. Unlike `findGitRepoRoot` (which
+* returns the innermost), this is used for repo discovery so that nested
+* repos like `odoo/en-erp` show up even when the session cwd is deep
+* inside the inner repo. Returns `null` if no `.git` is found.
+*/
+function findOutermostGitRoot(cwd) {
+	if (typeof cwd !== "string" || !cwd) return null;
+	let dir = path.resolve(cwd);
+	const root = path.parse(dir).root;
+	let outermost = null;
+	for (let depth = 0; depth < 64; depth++) {
+		let foundHere = false;
+		try {
+			fs.accessSync(path.join(dir, ".git"));
+			foundHere = true;
+		} catch {}
+		if (foundHere) outermost = dir;
+		const parent = path.dirname(dir);
+		if (parent === dir || parent === root) break;
+		dir = parent;
+	}
+	return outermost;
+}
 /** Directories we never scan for nested git repos. */
 const SKIPPED_REPO_SCAN_DIRS = new Set([
 	"node_modules",
@@ -976,6 +1001,7 @@ const SKIPPED_REPO_SCAN_DIRS = new Set([
 function listGitRepos(cwd) {
 	const repos = [];
 	const seen = /* @__PURE__ */ new Set();
+	const scanRoot = findOutermostGitRoot(cwd) ?? cwd;
 	function tryAdd(dirPath) {
 		try {
 			fs.accessSync(path.join(dirPath, ".git"));
@@ -990,24 +1016,33 @@ function listGitRepos(cwd) {
 			label: path.basename(resolved) || resolved
 		});
 	}
-	tryAdd(cwd);
+	tryAdd(scanRoot);
+	const MAX_SCAN_DEPTH = 4;
 	try {
-		const topEntries = fs.readdirSync(cwd, { withFileTypes: true });
-		for (const entry of topEntries) {
-			if (!entry.isDirectory()) continue;
-			if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
-			if (entry.name.startsWith(".") && entry.name !== ".git") continue;
-			const childPath = path.join(cwd, entry.name);
-			tryAdd(childPath);
+		const queue = [{
+			dir: scanRoot,
+			depth: 0
+		}];
+		while (queue.length > 0) {
+			const { dir, depth } = queue.shift();
+			if (depth >= MAX_SCAN_DEPTH) continue;
+			let entries;
 			try {
-				const grandEntries = fs.readdirSync(childPath, { withFileTypes: true });
-				for (const grand of grandEntries) {
-					if (!grand.isDirectory()) continue;
-					if (SKIPPED_REPO_SCAN_DIRS.has(grand.name)) continue;
-					if (grand.name.startsWith(".") && grand.name !== ".git") continue;
-					tryAdd(path.join(childPath, grand.name));
-				}
-			} catch {}
+				entries = fs.readdirSync(dir, { withFileTypes: true });
+			} catch {
+				continue;
+			}
+			for (const entry of entries) {
+				if (!entry.isDirectory()) continue;
+				if (SKIPPED_REPO_SCAN_DIRS.has(entry.name)) continue;
+				if (entry.name.startsWith(".") && entry.name !== ".git") continue;
+				const childPath = path.join(dir, entry.name);
+				tryAdd(childPath);
+				queue.push({
+					dir: childPath,
+					depth: depth + 1
+				});
+			}
 		}
 	} catch {}
 	return repos;
@@ -4058,4 +4093,4 @@ var WsRpcAdapter = class {
 	}
 };
 //#endregion
-export { WsRpcAdapter, findGitRepoRoot, listGitRepos, normalizeOptionalWorkspaceRoot, parseGitDiff };
+export { WsRpcAdapter, findGitRepoRoot, findOutermostGitRoot, listGitRepos, normalizeOptionalWorkspaceRoot, parseGitDiff };

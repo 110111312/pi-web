@@ -472,6 +472,11 @@
   let displayedSessionState = $derived(
     activeDebugSession?.sessionState ?? bridge.sessionState,
   );
+  let displayedWorkspacePath = $derived(
+    typeof displayedSessionState?.workspacePath === "string"
+      ? displayedSessionState.workspacePath.trim() || null
+      : null,
+  );
   let displayedTranscript = $derived(
     activeDebugSession?.transcript ?? bridge.transcript,
   );
@@ -946,7 +951,7 @@
     }
     if (tabId === GIT_TAB_ID) {
       void bridge.fetchDiffEntries(false, selectedGitRepoRoot).catch(() => {});
-      void bridge.fetchGitRepos().catch(() => {});
+      void bridge.fetchGitRepos(false, displayedWorkspacePath).catch(() => {});
     }
   }
 
@@ -1352,7 +1357,7 @@
       bridge.gitReposLoaded === false &&
       !bridge.gitReposLoading
     ) {
-      void bridge.fetchGitRepos().catch(() => {});
+      void bridge.fetchGitRepos(false, displayedWorkspacePath).catch(() => {});
     }
   });
 
@@ -1363,7 +1368,7 @@
     selectedGitRepoRoot = null;
     bridge.invalidateGitRepos();
     if (sessionPath) {
-      void bridge.fetchGitRepos().catch(() => {});
+      void bridge.fetchGitRepos(false, displayedWorkspacePath).catch(() => {});
     }
   });
 

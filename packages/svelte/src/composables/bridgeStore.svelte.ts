@@ -2344,6 +2344,7 @@ function normalizeGitRepoEntries(value: unknown): RpcGitRepoEntry[] {
 
 export async function fetchGitRepos(
   force: boolean = false,
+  workspacePath?: string | null,
 ): Promise<readonly RpcGitRepoEntry[]> {
   if (!force && _gitReposLoaded) return _gitRepos;
   if (gitReposRequest && !force) {
@@ -2353,7 +2354,11 @@ export async function fetchGitRepos(
   if (_connectionStatus !== "connected") return _gitRepos;
 
   _gitReposLoading = true;
-  const wp = getDisplayedWorkspacePath();
+  const wpParam =
+    typeof workspacePath === "string" && workspacePath.trim()
+      ? workspacePath.trim()
+      : null;
+  const wp = wpParam ?? getDisplayedWorkspacePath();
   gitReposRequest = sendCommand({
     type: "list_git_repos",
     ...(wp ? { workspacePath: wp } : {}),

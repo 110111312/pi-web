@@ -1728,6 +1728,30 @@ function parseDiffHunkHeader(line: string): {
   };
 }
 
+/**
+ * Walk up `cwd` looking for the nearest ancestor containing a `.git`
+ * entry. This intentionally does NOT call any git subprocesses so it stays
+ * fast and non-blocking — we only need the directory marker. Returns
+ * `null` if no `.git` is found before reaching the filesystem root.
+ */
+export function findGitRepoRoot(cwd: string): string | null {
+  if (typeof cwd !== "string" || !cwd) return null;
+  let dir = path.resolve(cwd);
+  const root = path.parse(dir).root;
+  while (true) {
+    try {
+      fs.accessSync(path.join(dir, ".git"));
+      return dir;
+    } catch {
+      /* not a repo boundary, keep walking */
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir || parent === root) break;
+    dir = parent;
+  }
+  return null;
+}
+
 /** Directories we never scan for nested git repos. */
 const SKIPPED_REPO_SCAN_DIRS = new Set([
   "node_modules",
@@ -6563,7 +6587,14 @@ export class WsRpcAdapter {
           };
         }
 
-        const entries = parseGitDiff(cwd);
+        // parseGitDiff runs git with cwd as the working directory; git
+        // walks up to find its repo automatically. If no repoRoot was
+        // provided we make sure cwd sits at the repo boundary so the
+        // diff covers the whole project, not just a subdirectory.
+        const diffRoot = command.repoRoot
+          ? cwd
+          : (findGitRepoRoot(cwd) ?? cwd);
+        const entries = parseGitDiff(diffRoot);
         return {
           id: correlationId,
           type: "response" as const,
@@ -6587,7 +6618,10 @@ export class WsRpcAdapter {
           };
         }
 
-        const repos = listGitRepos(cwd);
+        // If cwd is inside a git repo, scan from the repo root so sibling
+        // nested repos (e.g. odoo with en-erp at the same level) are
+        // discovered even when the session cwd is a subdirectory.
+        const repos = listGitRepos(findGitRepoRoot(cwd) ?? cwd);
         return {
           id: correlationId,
           type: "response" as const,

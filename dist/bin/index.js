@@ -1944,6 +1944,27 @@ function parseDiffHunkHeader(line) {
 		newCount: match[4] !== void 0 ? Number(match[4]) : 1
 	};
 }
+/**
+* Walk up `cwd` looking for the nearest ancestor containing a `.git`
+* entry. This intentionally does NOT call any git subprocesses so it stays
+* fast and non-blocking — we only need the directory marker. Returns
+* `null` if no `.git` is found before reaching the filesystem root.
+*/
+function findGitRepoRoot(cwd) {
+	if (typeof cwd !== "string" || !cwd) return null;
+	let dir = path.resolve(cwd);
+	const root = path.parse(dir).root;
+	while (true) {
+		try {
+			fs.accessSync(path.join(dir, ".git"));
+			return dir;
+		} catch {}
+		const parent = path.dirname(dir);
+		if (parent === dir || parent === root) break;
+		dir = parent;
+	}
+	return null;
+}
 /** Directories we never scan for nested git repos. */
 const SKIPPED_REPO_SCAN_DIRS = new Set([
 	"node_modules",
@@ -4824,7 +4845,7 @@ var WsRpcAdapter = class {
 					type: "response",
 					command: "list_diff_entries",
 					success: true,
-					data: { entries: parseGitDiff(cwd) }
+					data: { entries: parseGitDiff(command.repoRoot ? cwd : findGitRepoRoot(cwd) ?? cwd) }
 				};
 			}
 			case "list_git_repos": {
@@ -4841,7 +4862,7 @@ var WsRpcAdapter = class {
 					type: "response",
 					command: "list_git_repos",
 					success: true,
-					data: { repos: listGitRepos(cwd) }
+					data: { repos: listGitRepos(findGitRepoRoot(cwd) ?? cwd) }
 				};
 			}
 			case "switch_git_branch": {

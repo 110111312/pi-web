@@ -5453,6 +5453,84 @@ describe("WsRpcAdapter", () => {
     });
   });
 
+  describe("findGitRepoRoot", () => {
+    it("returns null for directories outside any git repo", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-findrepo-none-"),
+      );
+      try {
+        const { findGitRepoRoot } = await import("../ws-rpc-adapter.js");
+        expect(findGitRepoRoot(tmpDir)).toBeNull();
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("returns the directory itself when cwd has a .git", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-findrepo-self-"),
+      );
+      try {
+        runGit(tmpDir, ["init"]);
+        const { findGitRepoRoot } = await import("../ws-rpc-adapter.js");
+        expect(fs.realpathSync(findGitRepoRoot(tmpDir)!)).toBe(
+          fs.realpathSync(tmpDir),
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("walks up to find the enclosing repo root from a subdirectory", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-findrepo-up-"),
+      );
+      try {
+        runGit(tmpDir, ["init"]);
+        const inner = path.join(tmpDir, "addons", "some_module");
+        fs.mkdirSync(inner, { recursive: true });
+        const { findGitRepoRoot } = await import("../ws-rpc-adapter.js");
+        expect(fs.realpathSync(findGitRepoRoot(inner)!)).toBe(
+          fs.realpathSync(tmpDir),
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("stops at the nearest ancestor git repo, not at the workspace root", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-findrepo-nearest-"),
+      );
+      try {
+        runGit(tmpDir, ["init"]);
+        const inner = path.join(tmpDir, "nested");
+        fs.mkdirSync(inner, { recursive: true });
+        runGit(inner, ["init"]);
+        const deeper = path.join(inner, "deeper");
+        fs.mkdirSync(deeper, { recursive: true });
+        const { findGitRepoRoot } = await import("../ws-rpc-adapter.js");
+        expect(fs.realpathSync(findGitRepoRoot(deeper)!)).toBe(
+          fs.realpathSync(inner),
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("returns null for empty or non-string input", async () => {
+      const { findGitRepoRoot } = await import("../ws-rpc-adapter.js");
+      expect(findGitRepoRoot("")).toBeNull();
+      // non-string inputs are defended against
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(findGitRepoRoot(null as any)).toBeNull();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(findGitRepoRoot(undefined as any)).toBeNull();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(findGitRepoRoot(42 as any)).toBeNull();
+    });
+  });
+
   describe("git branch RPCs", () => {
     // Verify the new defensive guards added to harden against malformed
     // payloads — without these, a missing/wrong-type branchName would

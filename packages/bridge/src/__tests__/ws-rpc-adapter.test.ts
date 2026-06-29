@@ -5448,4 +5448,62 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
+
+  describe("git branch RPCs", () => {
+    // Verify the new defensive guards added to harden against malformed
+    // payloads — without these, a missing/wrong-type branchName would
+    // surface as "branchName.trim is not a function" or crash upstream
+    // consumers that call .trim() on a non-string workspacePath.
+    it("rejects switch_git_branch with a non-string branchName", async () => {
+      const command = {
+        id: "cmd-bad-switch",
+        type: "switch_git_branch",
+        branchName: { not: "a string" },
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => JSON.parse(call[0] as string),
+      );
+      const response = sendCalls.find(
+        (call) =>
+          call.type === "response" && call.payload.command === "switch_git_branch",
+      );
+      expect(response?.payload.success).toBe(false);
+      expect(response?.payload.error).toBe("branchName must be a string");
+    });
+
+    it("rejects create_git_branch with a non-string branchName", async () => {
+      const command = {
+        id: "cmd-bad-create",
+        type: "create_git_branch",
+        branchName: ["not", "a", "string"],
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => JSON.parse(call[0] as string),
+      );
+      const response = sendCalls.find(
+        (call) =>
+          call.type === "response" && call.payload.command === "create_git_branch",
+      );
+      expect(response?.payload.success).toBe(false);
+      expect(response?.payload.error).toBe("branchName must be a string");
+    });
+  });
 });

@@ -207,7 +207,8 @@ function normalizeThinkingLevel(value: unknown): RpcThinkingLevel | null {
   }
 }
 
-function summarizeErrorMessage(message: string, fallback: string): string {
+function summarizeErrorMessage(message: unknown, fallback: string): string {
+  if (typeof message !== "string") return fallback;
   const line = message
     .split(/\r?\n/)
     .map(part => part.trim())
@@ -480,14 +481,20 @@ function getDisplayedSessionPath(): string | null {
 }
 
 function getDisplayedWorkspacePath(): string | null {
-  const swp = _sessionState?.workspacePath?.trim();
+  const swp =
+    typeof _sessionState?.workspacePath === "string"
+      ? _sessionState.workspacePath.trim()
+      : "";
   if (swp) return swp;
 
   const dsp = getDisplayedSessionPath();
   if (!dsp) return null;
 
   const ms = sessions.find(s => s.path === dsp);
-  return ms?.workspacePath?.trim() ?? ms?.workspaceId?.trim() ?? null;
+  const msPath = typeof ms?.workspacePath === "string" ? ms.workspacePath.trim() : "";
+  if (msPath) return msPath;
+  const msId = typeof ms?.workspaceId === "string" ? ms.workspaceId.trim() : "";
+  return msId || null;
 }
 
 function getWorkspaceEntriesContextKey(): string | null {
@@ -745,7 +752,8 @@ function ensureWorkspaceSummary(
   workspaceName?: string | null,
   updatedAt?: string | null,
 ) {
-  const path = workspacePath?.trim();
+  if (typeof workspacePath !== "string") return;
+  const path = workspacePath.trim();
   if (!path) return;
   const existing = _workspaces.find(workspace => workspace.path === path);
   const nextUpdatedAt =
@@ -755,7 +763,10 @@ function ensureWorkspaceSummary(
       : existing?.updatedAt;
   const nextWorkspace: WorkspaceSummary = {
     id: existing?.id ?? path,
-    name: workspaceName?.trim() || existing?.name || workspaceDisplayName(path),
+    name:
+      typeof workspaceName === "string" && workspaceName.trim()
+        ? workspaceName.trim()
+        : existing?.name || workspaceDisplayName(path),
     path,
     updatedAt: nextUpdatedAt,
   };
@@ -1525,12 +1536,23 @@ function applySessionSnapshotResponse(
     ensureWorkspaceSummary(data.workspacePath);
   }
   if (data.sessionId) {
+    // Only assign workspacePath when the upstream actually provided a string.
+    // A non-string value would later crash `.trim()` consumers.
+    const nextWorkspacePath =
+      typeof data.workspacePath === "string"
+        ? data.workspacePath
+        : (_sessionState?.workspacePath ?? undefined);
+    const nextSessionFile = data.sessionPath ?? _sessionState?.sessionFile;
     _sessionState = {
       ..._sessionState,
       sessionId: data.sessionId,
       sessionName: data.sessionName,
-      sessionFile: data.sessionPath ?? _sessionState?.sessionFile,
-      workspacePath: data.workspacePath ?? _sessionState?.workspacePath,
+      ...(typeof nextSessionFile === "string"
+        ? { sessionFile: nextSessionFile }
+        : {}),
+      ...(typeof nextWorkspacePath === "string"
+        ? { workspacePath: nextWorkspacePath }
+        : {}),
     } as RpcSessionState;
   }
   if (prevSp !== getDisplayedSessionPath()) {
@@ -2024,7 +2046,7 @@ function applyGitRepoMutation(state: RpcGitRepoState | null) {
   if (state) {
     _gitRepoStateByRoot.set(state.repoRoot, state);
     snapshotGitRepoStateByRootMap();
-    if (_sessionState) {
+    if (_sessionState && typeof state.headLabel === "string") {
       _sessionState = { ..._sessionState, gitBranch: state.headLabel };
     }
   }
@@ -2037,16 +2059,17 @@ function applyGitRepoMutation(state: RpcGitRepoState | null) {
 }
 
 export async function switchGitBranch(
-  branchName: string,
+  branchName: unknown,
   repoRoot?: string | null,
 ): Promise<RpcGitRepoState | null> {
-  if (!branchName.trim() || _connectionStatus !== "connected") return null;
+  if (typeof branchName !== "string" || !branchName.trim() || _connectionStatus !== "connected") return null;
+  const safeBranchName = branchName.trim();
   _gitBranchSwitching = true;
 
   try {
     const resp = await sendCommand({
       type: "switch_git_branch",
-      branchName,
+      branchName: safeBranchName,
       ...(repoRoot ? { repoRoot } : {}),
     });
     if (!resp.success) {
@@ -2092,16 +2115,17 @@ export async function switchGitBranch(
 }
 
 export async function createGitBranch(
-  branchName: string,
+  branchName: unknown,
   repoRoot?: string | null,
 ): Promise<RpcGitRepoState | null> {
-  if (!branchName.trim() || _connectionStatus !== "connected") return null;
+  if (typeof branchName !== "string" || !branchName.trim() || _connectionStatus !== "connected") return null;
+  const safeBranchName = branchName.trim();
   _gitBranchSwitching = true;
 
   try {
     const resp = await sendCommand({
       type: "create_git_branch",
-      branchName,
+      branchName: safeBranchName,
       ...(repoRoot ? { repoRoot } : {}),
     });
     if (!resp.success) {
@@ -2602,16 +2626,22 @@ function handleResponse(payload: RpcResponse) {
             data.sessionFile &&
             _activeTreeSessionPath !== data.sessionFile,
           );
+          // Drop non-string workspacePath to avoid crashing `.trim()`
+          // consumers in derived state.
+          const safeData: RpcSessionState =
+            typeof data.workspacePath === "string" || data.workspacePath == null
+              ? data
+              : { ...data, workspacePath: undefined };
           _sessionState = isBrowsingDifferent
             ? {
-                ...data,
-                sessionId: _sessionState?.sessionId ?? data.sessionId,
-                sessionName: _sessionState?.sessionName ?? data.sessionName,
-                sessionFile: _activeTreeSessionPath ?? data.sessionFile,
+                ...safeData,
+                sessionId: _sessionState?.sessionId ?? safeData.sessionId,
+                sessionName: _sessionState?.sessionName ?? safeData.sessionName,
+                sessionFile: _activeTreeSessionPath ?? safeData.sessionFile,
                 workspacePath:
-                  _sessionState?.workspacePath ?? data.workspacePath,
+                  _sessionState?.workspacePath ?? safeData.workspacePath,
               }
-            : data;
+            : safeData;
           if (data.workspacePath) {
             ensureWorkspaceSummary(data.workspacePath);
           }

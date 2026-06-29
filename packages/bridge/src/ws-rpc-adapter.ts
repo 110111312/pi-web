@@ -6597,6 +6597,15 @@ export class WsRpcAdapter {
       }
 
       case "switch_git_branch": {
+        if (typeof command.branchName !== "string") {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "switch_git_branch" as const,
+            success: false as const,
+            error: "branchName must be a string",
+          };
+        }
         const branchName = command.branchName.trim();
         if (!branchName) {
           return {
@@ -6712,6 +6721,15 @@ export class WsRpcAdapter {
       }
 
       case "create_git_branch": {
+        if (typeof command.branchName !== "string") {
+          return {
+            id: correlationId,
+            type: "response" as const,
+            command: "create_git_branch" as const,
+            success: false as const,
+            error: "branchName must be a string",
+          };
+        }
         const branchName = command.branchName.trim();
         if (!branchName) {
           return {

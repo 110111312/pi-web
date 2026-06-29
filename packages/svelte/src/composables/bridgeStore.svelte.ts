@@ -1891,8 +1891,12 @@ export async function fetchDirectoryEntries(
 
 export async function readWorkspaceFile(
   path: string,
+  workspacePath?: string | null,
 ): Promise<RpcWorkspaceFile> {
-  const wp = getDisplayedWorkspacePath();
+  const wp =
+    typeof workspacePath === "string" && workspacePath.trim()
+      ? workspacePath.trim()
+      : getDisplayedWorkspacePath();
   const resp = await sendCommand({
     type: "read_workspace_file",
     path,
@@ -2251,6 +2255,9 @@ function normalizeDiffEntry(value: unknown): RpcDiffEntry | null {
     entry.oldPath = data.oldPath;
   }
   if (data.isBinary === true) entry.isBinary = true;
+  if (typeof data.repoRoot === "string" && data.repoRoot) {
+    entry.repoRoot = data.repoRoot;
+  }
   return entry;
 }
 

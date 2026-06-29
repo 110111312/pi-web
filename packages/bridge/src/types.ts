@@ -103,6 +103,9 @@ export interface RpcDiffEntry {
   /** True when git reports the file as binary. */
   isBinary?: boolean;
   hunks: RpcDiffHunk[];
+  /** Repo the diff was produced from. Used to read the file from the
+   *  correct nested repo when multiple repos share a workspace. */
+  repoRoot?: string;
 }
 
 /** A git repository discovered under the workspace root. */

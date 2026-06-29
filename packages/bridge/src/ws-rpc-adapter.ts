@@ -6634,7 +6634,10 @@ export class WsRpcAdapter {
         const diffRoot = command.repoRoot
           ? cwd
           : (findGitRepoRoot(cwd) ?? cwd);
-        const entries = parseGitDiff(diffRoot);
+        const entries = parseGitDiff(diffRoot).map(e => ({
+          ...e,
+          repoRoot: diffRoot,
+        }));
         return {
           id: correlationId,
           type: "response" as const,

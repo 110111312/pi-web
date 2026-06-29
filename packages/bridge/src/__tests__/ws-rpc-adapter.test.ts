@@ -918,6 +918,56 @@ describe("WsRpcAdapter", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
+    it("stamps repoRoot on diff entries when provided", async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "pi-web-diff-reporoot-"),
+      );
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello\n");
+      runGit(tmpDir, ["init"]);
+      runGit(tmpDir, ["config", "user.name", "Pi Web"]);
+      runGit(tmpDir, ["config", "user.email", "pi-web@example.com"]);
+      runGit(tmpDir, ["add", "README.md"]);
+      runGit(tmpDir, ["commit", "-m", "init"]);
+      fs.writeFileSync(path.join(tmpDir, "README.md"), "hello world\n");
+
+      (
+        context.state.sessionManager.getCwd as ReturnType<typeof vi.fn>
+      ).mockReturnValue(tmpDir);
+      context.state.cwd = tmpDir;
+
+      const command: RpcCommand = {
+        id: "cmd-diff-reporoot",
+        type: "list_diff_entries",
+        repoRoot: tmpDir,
+      };
+      (
+        ws as unknown as { trigger: (event: string, data: Buffer) => void }
+      ).trigger(
+        "message",
+        Buffer.from(JSON.stringify({ type: "command", payload: command })),
+      );
+
+      await new Promise(r => setTimeout(r, 10));
+
+      const sendCalls = (ws.send as ReturnType<typeof vi.fn>).mock.calls.map(
+        call => JSON.parse(call[0] as string),
+      );
+      const response = sendCalls.find(
+        call =>
+          call.type === "response" &&
+          call.payload.command === "list_diff_entries" &&
+          call.payload.success,
+      );
+
+      const entries = response?.payload.data.entries ?? [];
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        expect(entry.repoRoot).toBe(tmpDir);
+      }
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("should return an empty diff list when the working tree is clean", async () => {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "pi-web-diff-clean-"),

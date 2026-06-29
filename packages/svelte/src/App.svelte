@@ -368,6 +368,12 @@
         ? activeDebugSession.backingWorkspacePath.trim()
         : "";
     if (!activeDebugSession) {
+      // Prefer the diff entry's repo root (handles nested repos like
+      // odoo/en-erp where the active workspace is the outer project).
+      const repoRoot = modalDiffEntry?.repoRoot ?? null;
+      if (repoRoot) {
+        return bridge.readWorkspaceFile(path, repoRoot);
+      }
       return bridge.readWorkspaceFile(path);
     }
     if (!workspacePath) {

@@ -3858,12 +3858,16 @@ var WsRpcAdapter = class {
 					success: false,
 					error: "No working directory for the active session"
 				};
+				const diffRoot = command.repoRoot ? cwd : findGitRepoRoot(cwd) ?? cwd;
 				return {
 					id: correlationId,
 					type: "response",
 					command: "list_diff_entries",
 					success: true,
-					data: { entries: parseGitDiff(command.repoRoot ? cwd : findGitRepoRoot(cwd) ?? cwd) }
+					data: { entries: parseGitDiff(diffRoot).map((e) => ({
+						...e,
+						repoRoot: diffRoot
+					})) }
 				};
 			}
 			case "list_git_repos": {

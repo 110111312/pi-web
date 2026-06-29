@@ -286,8 +286,12 @@
   $effect(() => {
     if (!isGroupedMode || !isOpen) return;
     void repos;
+    console.log(
+      `[GitBranchDropdown] grouped-open effect fire; repos=${repos.length}, repoStateByRoot keys=${Object.keys(repoStateByRoot).join(",")}`,
+    );
     for (const repo of repos) {
       if (!repoStateByRoot[repo.root] && !repoStateLoadingByRoot[repo.root]) {
+        console.log(`[GitBranchDropdown] loading branches for ${repo.root}`);
         // Fire-and-forget; errors are surfaced via notifications.
         void refreshRepoState(repo.root, true).catch(() => {});
       }

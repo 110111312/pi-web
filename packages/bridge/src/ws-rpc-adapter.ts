@@ -6661,7 +6661,8 @@ export class WsRpcAdapter {
         // If cwd is inside a git repo, scan from the repo root so sibling
         // nested repos (e.g. odoo with en-erp at the same level) are
         // discovered even when the session cwd is a subdirectory.
-        const repos = listGitRepos(findGitRepoRoot(cwd) ?? cwd);
+        const resolvedRoot = findGitRepoRoot(cwd) ?? cwd;
+        const repos = listGitRepos(resolvedRoot);
         return {
           id: correlationId,
           type: "response" as const,

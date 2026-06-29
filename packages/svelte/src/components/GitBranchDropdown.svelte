@@ -284,8 +284,12 @@
   // Auto-load branches for every known repo the first time the dropdown opens
   // (or when the repo list changes). Avoids blocking on selection.
   $effect(() => {
+    // Track length unconditionally so this effect re-fires when the repo
+    // list grows from 1 to N (e.g. workspace switch reveals a nested repo).
+    void repos.length;
+    void repoStateByRoot;
+    void repoStateLoadingByRoot;
     if (!isGroupedMode || !isOpen) return;
-    void repos;
     for (const repo of repos) {
       if (!repoStateByRoot[repo.root] && !repoStateLoadingByRoot[repo.root]) {
         // Fire-and-forget; errors are surfaced via notifications.

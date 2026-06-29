@@ -4,7 +4,6 @@ import type {
   RpcCommand,
   RpcAgentEndEvent,
   RpcAgentStartEvent,
-  RpcImageContent,
   RpcResponse,
   RpcSessionState,
   RpcDirectoryEntry,
@@ -14,24 +13,23 @@ import type {
   RpcSessionStats,
   RpcSlashCommand,
   RpcThinkingLevel,
-  RpcTranscriptDeltaEvent,
-  RpcTreeEntry,
+  RpcTranscriptMessage,
   RpcTranscriptStartEvent,
+  RpcTranscriptDeltaEvent,
   RpcWorkspaceEntry,
   RpcWorkspaceFile,
   RpcWorkspaceWriteResult,
-  RpcExtensionUIRequest,
-  RpcExtensionUIResponse,
-  RpcGitBranch,
+  RpcGitRepoEntry,
   RpcGitRepoState,
   RpcQueuedMessage,
   RpcQueueUpdateEvent,
-  RpcTranscriptMessage,
+  RpcExtensionUIRequest,
+  RpcExtensionUIResponse,
+  RpcImageContent,
   RpcTranscriptPage,
   RpcTranscriptSnapshotEvent,
   RpcTranscriptUpsertEvent,
   RpcSessionStatsEvent,
-  RpcWorkspaceSummary,
   ServerMessage,
 } from "@pi-web/bridge/types";
 import {
@@ -39,183 +37,47 @@ import {
   upsertModel,
   type RpcModelInfo,
 } from "../utils/models";
+import type { PendingTranscriptSessionEvent } from "../utils/transcript";
 import {
-  normalizeTranscript,
-  transcriptConfigState,
-  type PendingTranscriptSessionEvent,
-} from "../utils/transcript";
+  normalizeTranscriptEntries,
+  readTranscriptConfigState,
+  normalizeSessionStats,
+  normalizeGitBranch,
+  normalizeGitRepoState,
+  normalizeQueuedMessage,
+  normalizeThinkingLevel,
+  readFiniteNumber,
+  summarizeErrorMessage,
+  type ConnectionStatus,
+  type DialogExtensionUIRequest,
+  type PendingDisplayTranscriptDelta,
+  type SessionEntry,
+  type TranscriptDelta,
+  type TranscriptEntry,
+  type TranscriptStream,
+  type TreeEntry,
+  type WorkspaceSummary,
+} from "./bridgeStore/bridgeTypes";
 
-type TranscriptConfigSnapshot = ReturnType<typeof transcriptConfigState>;
-
-const normalizeTranscriptEntries = normalizeTranscript as (
-  messages: readonly unknown[],
-) => TranscriptEntry[];
-const readTranscriptConfigState = transcriptConfigState as (
-  messages: readonly unknown[],
-) => TranscriptConfigSnapshot;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type ConnectionStatus = "connecting" | "connected" | "disconnected";
-
-export type TranscriptEntry = RpcTranscriptMessage;
-export type TranscriptDelta = RpcTranscriptDeltaEvent;
-export type TranscriptStream = RpcTranscriptStartEvent;
-export type TreeEntry = RpcTreeEntry;
-
-type DialogExtensionUIRequest = Extract<
-  RpcExtensionUIRequest,
-  { method: "select" | "confirm" | "input" | "editor" }
->;
-
-type PendingDisplayTranscriptDelta = {
-  payload: Omit<TranscriptDelta, "delta">;
-  pendingText: string;
-  pendingUnits: number;
-  queuedAt: number;
-  started: boolean;
-};
-
-export interface SessionEntry {
-  id: string;
-  name: string;
-  path: string;
-  isRunning?: boolean;
-  timestamp?: string;
-  updatedAt?: string;
-  workspaceId?: string;
-  workspaceName?: string;
-  workspacePath?: string;
-  parentSession?: string;
-}
-
-export type WorkspaceSummary = RpcWorkspaceSummary;
-
-function readFiniteNumber(value: unknown, fallback = 0): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function normalizeSessionStats(value: unknown): RpcSessionStats | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Partial<RpcSessionStats>;
-  return {
-    tokens:
-      typeof data.tokens === "number" && Number.isFinite(data.tokens)
-        ? data.tokens
-        : null,
-    contextWindow: readFiniteNumber(data.contextWindow),
-    percent:
-      typeof data.percent === "number" && Number.isFinite(data.percent)
-        ? data.percent
-        : null,
-    messageCount: readFiniteNumber(data.messageCount),
-    cost: readFiniteNumber(data.cost),
-    inputTokens: readFiniteNumber(data.inputTokens),
-    outputTokens: readFiniteNumber(data.outputTokens),
-    cacheReadTokens: readFiniteNumber(data.cacheReadTokens),
-    cacheWriteTokens: readFiniteNumber(data.cacheWriteTokens),
-  };
-}
-
-function normalizeGitBranch(value: unknown): RpcGitBranch | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Partial<RpcGitBranch>;
-  if (typeof data.name !== "string" || typeof data.shortName !== "string") {
-    return null;
-  }
-  if (data.kind !== "local" && data.kind !== "remote") {
-    return null;
-  }
-
-  return {
-    name: data.name,
-    shortName: data.shortName,
-    kind: data.kind,
-    remoteName:
-      typeof data.remoteName === "string" ? data.remoteName : undefined,
-    isCurrent: data.isCurrent === true,
-  };
-}
-
-function normalizeGitRepoState(value: unknown): RpcGitRepoState | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Partial<RpcGitRepoState>;
-  if (typeof data.repoRoot !== "string" || typeof data.headLabel !== "string") {
-    return null;
-  }
-
-  const branches = Array.isArray(data.branches)
-    ? data.branches
-        .map(branch => normalizeGitBranch(branch))
-        .filter((branch): branch is RpcGitBranch => branch !== null)
-    : [];
-
-  return {
-    repoRoot: data.repoRoot,
-    headLabel: data.headLabel,
-    currentBranch:
-      typeof data.currentBranch === "string" ? data.currentBranch : undefined,
-    detached: data.detached === true,
-    isDirty: data.isDirty === true,
-    branches,
-  };
-}
-
-function normalizeQueuedMessage(value: unknown): RpcQueuedMessage | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Partial<RpcQueuedMessage>;
-  if (typeof data.text !== "string") {
-    return null;
-  }
-
-  const images = Array.isArray(data.images)
-    ? data.images.filter(
-        (image): image is RpcImageContent =>
-          Boolean(image) &&
-          image.type === "image" &&
-          typeof image.data === "string" &&
-          typeof image.mimeType === "string",
-      )
-    : [];
-
-  return {
-    text: data.text,
-    images,
-    timestamp:
-      typeof data.timestamp === "number" && Number.isFinite(data.timestamp)
-        ? data.timestamp
-        : Date.now(),
-    queueType: data.queueType === "steering" ? "steering" : "followUp",
-  };
-}
-
-function normalizeThinkingLevel(value: unknown): RpcThinkingLevel | null {
-  switch (value) {
-    case "normal":
-    case "medium":
-      return "medium";
-    case "off":
-    case "minimal":
-    case "low":
-    case "high":
-    case "xhigh":
-      return value;
-    default:
-      return null;
-  }
-}
-
-function summarizeErrorMessage(message: unknown, fallback: string): string {
-  if (typeof message !== "string") return fallback;
-  const line = message
-    .split(/\r?\n/)
-    .map(part => part.trim())
-    .find(Boolean);
-  if (!line) return fallback;
-  return line.length > 220 ? `${line.slice(0, 217)}...` : line;
-}
+// Re-export public types so external consumers keep working unchanged.
+export type {
+  ConnectionStatus,
+  SessionEntry,
+  TranscriptEntry,
+  TranscriptDelta,
+  TranscriptStream,
+  TreeEntry,
+  WorkspaceSummary,
+} from "./bridgeStore/bridgeTypes";
+export {
+  normalizeSessionStats,
+  normalizeGitBranch,
+  normalizeGitRepoState,
+  normalizeQueuedMessage,
+  normalizeThinkingLevel,
+  readFiniteNumber,
+  summarizeErrorMessage,
+} from "./bridgeStore/bridgeTypes";
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -1,5 +1,7 @@
 <script lang="ts">
   import type {
+    RpcGitBranch,
+    RpcGitRepoEntry,
     RpcGitRepoState,
     RpcImageContent,
     RpcQueuedMessage,
@@ -50,9 +52,26 @@
     gitRepoState = null as RpcGitRepoState | null,
     gitRepoLoading = false,
     gitBranchSwitching = false,
-    refreshGitRepoState = (_?: boolean) => Promise.resolve(null as RpcGitRepoState | null),
-    switchGitBranch = (_: string) => Promise.resolve(null as RpcGitRepoState | null),
-    createGitBranch = (_: string) => Promise.resolve(null as RpcGitRepoState | null),
+    gitRepos = [] as readonly RpcGitRepoEntry[],
+    gitReposLoading = false,
+    gitRepoStateByRoot = {} as Readonly<Record<string, RpcGitRepoState>>,
+    gitRepoStateLoadingByRoot = {} as Readonly<Record<string, boolean>>,
+    selectedGitRepoRoot = null as string | null,
+    refreshGitRepoState = (
+      _?: string | null,
+      __?: boolean,
+    ) => Promise.resolve(null as RpcGitRepoState | null),
+    switchGitBranch = (
+      _: string,
+      __?: string | null,
+    ) => Promise.resolve(null as RpcGitRepoState | null),
+    createGitBranch = (
+      _: string,
+      __?: string | null,
+    ) => Promise.resolve(null as RpcGitRepoState | null),
+    onPickGitRepo = (_: string | null) => {},
+    onPickGitBranch = (_: string, __: RpcGitBranch) => Promise.resolve(),
+    onCreateGitBranch = (_: string, __: string) => Promise.resolve(),
     prefillText = null as string | null,
     pendingRevision = null as {
       entryId: string;
@@ -120,9 +139,17 @@
     gitRepoState?: RpcGitRepoState | null;
     gitRepoLoading?: boolean;
     gitBranchSwitching?: boolean;
-    refreshGitRepoState?: (force?: boolean) => Promise<RpcGitRepoState | null>;
-    switchGitBranch?: (branchName: string) => Promise<RpcGitRepoState | null>;
-    createGitBranch?: (branchName: string) => Promise<RpcGitRepoState | null>;
+    gitRepos?: readonly RpcGitRepoEntry[];
+    gitReposLoading?: boolean;
+    gitRepoStateByRoot?: Readonly<Record<string, RpcGitRepoState>>;
+    gitRepoStateLoadingByRoot?: Readonly<Record<string, boolean>>;
+    selectedGitRepoRoot?: string | null;
+    refreshGitRepoState?: (repoRoot?: string | null, force?: boolean) => Promise<RpcGitRepoState | null>;
+    switchGitBranch?: (branchName: string, repoRoot?: string | null) => Promise<RpcGitRepoState | null>;
+    createGitBranch?: (branchName: string, repoRoot?: string | null) => Promise<RpcGitRepoState | null>;
+    onPickGitRepo?: (repoRoot: string | null) => void;
+    onPickGitBranch?: (repoRoot: string, branch: RpcGitBranch) => Promise<void>;
+    onCreateGitBranch?: (repoRoot: string, name: string) => Promise<void>;
     prefillText?: string | null;
     pendingRevision?: {
       entryId: string;
@@ -262,10 +289,18 @@
     {gitRepoState}
     {gitRepoLoading}
     {gitBranchSwitching}
-    gitActionsDisabled={isDebugSession || connectionStatus !== "connected" || isStreaming || isCompacting}
+    {gitRepos}
+    {gitReposLoading}
+    {gitRepoStateByRoot}
+    {gitRepoStateLoadingByRoot}
+    {selectedGitRepoRoot}
     {refreshGitRepoState}
     {switchGitBranch}
     {createGitBranch}
+    {onPickGitRepo}
+    {onPickGitBranch}
+    {onCreateGitBranch}
+    gitActionsDisabled={isDebugSession || connectionStatus !== "connected" || isStreaming || isCompacting}
   />
 </main>
 
